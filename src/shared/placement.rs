@@ -1,10 +1,14 @@
 use bevy::prelude::{
-    default, BuildChildren, Commands, Entity, EventReader, PbrBundle, Plugin, Query, Res,
+    default, BuildChildren, Commands, Entity, EventReader, PbrBundle, Plugin, Query, Res, ResMut,
 };
+use bevy_renet::renet::RenetClient;
 
 use crate::model::block::{BlockBundle, BlockType};
 use crate::model::block_map::{BlockMap, BlockPosition};
 use crate::resources::block_registry::{self, BlockRegistry};
+use crate::shared::events::ship::AddBlockEvent;
+use crate::shared::networking::message::{NetworkMessage, ServerMessage};
+use crate::shared::networking::network_id::NetworkIdMap;
 
 pub struct PlacementPlugin;
 
@@ -34,6 +38,8 @@ pub struct BlockRemoveEvent {
 
 fn place(
     mut commands: Commands,
+    //mut client: ResMut<RenetClient>,
+    mut network_ids: ResMut<NetworkIdMap>,
     block_registry: Res<BlockRegistry>,
     mut block_place_events: EventReader<BlockPlaceEvent>,
     mut block_map_query: Query<&mut BlockMap>,
@@ -55,10 +61,27 @@ fn place(
                     })
                     .id();
                 commands.entity(event.ship_entity).add_child(block_entity);
-                block_map.set(event.block_position, block_entity);
+                block_map.set(event.block_position, event.block_type, block_entity);
+
+                let ship_network_id = network_ids.get(event.ship_entity);
+
+                let message = ServerMessage::AddBlock(AddBlockEvent {
+                    ship_network_id,
+                    block_position: event.block_position,
+                    block_type: event.block_type,
+                });
+
+                // send_client(client, &message);
             }
         }
     }
+}
+
+fn send_client<T: ?Sized>(client: &mut RenetClient, message: &T)
+where
+    T: serde::Serialize + NetworkMessage,
+{
+    client.send_message(message.channel_id(), bincode::serialize(message).unwrap());
 }
 
 pub fn remove(

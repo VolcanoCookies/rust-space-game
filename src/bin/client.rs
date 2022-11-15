@@ -1,27 +1,27 @@
-use bevy::asset::LoadState;
-
-use bevy::prelude::*;
+use bevy_debug_text_overlay::OverlayPlugin;
+use spacegame::*;
 
 use bevy::render::texture::ImageSettings;
-use bevy_inspector_egui::{RegisterInspectable, WorldInspectorPlugin};
+use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_rapier3d::prelude::*;
+use client::controller::{Character, Controlled, ControllerPlugin};
 use resources::keybindings::Keybindings;
-use system::controller::{Character, Controlled, ControllerPlugin};
-use system::placement::PlacementPlugin;
+use spacegame::client::networking::ClientNetworkingPlugin;
+use spacegame::client::player::PlayerPlugin;
+use spacegame::client::sync::SyncPlugin;
+use spacegame::placement::PlacementPlugin;
+use spacegame::shared::entities::player::PlayerBundle;
 
-use crate::model::block::{BlockBundle, BlockType};
-use crate::model::block_map::{BlockMap, BlockPosition};
-use crate::model::ship::ShipBundle;
+use crate::model::block::BlockType;
+
 use crate::resources::block_registry::BlockRegistry;
 use crate::resources::mouse::Mouse;
 use crate::resources::skybox::{asset_loaded, Cubemap, CubemapMaterial};
-use crate::system::controller::LookingAt;
 
-mod math;
-mod model;
-mod resources;
-mod system;
+use crate::client::controller::LookingAt;
+
+use spacegame::client::*;
 
 fn main() {
     App::new()
@@ -38,6 +38,7 @@ fn main() {
         })
         .insert_resource(Keybindings::default())
         .add_plugins(DefaultPlugins)
+        .add_plugin(OverlayPlugin::default())
         .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DebugLinesPlugin::with_depth_test(true))
         .insert_resource(BlockRegistry::new())
@@ -45,23 +46,31 @@ fn main() {
         .insert_resource(LookingAt::None)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugin(RapierDebugRenderPlugin::default())
-        .add_startup_system(setup)
+        // Insert network
+        .add_plugin(ClientNetworkingPlugin)
+        .add_plugin(SyncPlugin)
+        // Insert game
+        .add_startup_system(client_setup)
         .add_plugin(ControllerPlugin)
         .add_plugin(PlacementPlugin)
-        .add_system(system::highlight::highlight_mouse_pressed)
-        .add_system(system::ship::despawn_ship)
+        .add_system(client::highlight::highlight_mouse_pressed)
+        .add_system(shared::ship::despawn_ship)
         .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
         .add_system(asset_loaded)
+        .add_plugin(PlayerPlugin)
         .run();
 }
 
-fn setup(
+fn client_setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     mut block_registry: ResMut<BlockRegistry>,
 ) {
+    // Spawn UI Camera
+    // commands.spawn_bundle(Camera2dBundle::default());
+
     let hull_handle = asset_server.load("hull.png");
 
     // Register block types
@@ -93,39 +102,16 @@ fn setup(
         ..default()
     });
 
-    // Ship
-    let mut block_map = BlockMap::new();
-    commands
-        .spawn()
-        .with_children(|parent| {
-            let block_position = BlockPosition::splat(0);
-
-            let block_entity = parent
-                .spawn_bundle(BlockBundle {
-                    pbr_bundle: PbrBundle {
-                        mesh: block_registry.get_mesh(BlockType::Hull),
-                        material: block_registry.get_material(BlockType::Hull),
-                        transform: Transform::from_xyz(0., 0., 0.),
-                        ..default()
-                    },
-                    block_position,
-                    ..default()
-                })
-                .id();
-
-            block_map.set(block_position, block_entity);
-        })
-        .insert_bundle(ShipBundle {
-            block_map,
-            ..default()
-        });
-
     // Camera
     let camera_entity = commands.spawn_bundle(Camera3dBundle::default()).id();
 
     // Character
     let character_entity = commands
-        .spawn_bundle(PbrBundle {
+        .spawn_bundle(PlayerBundle {
+            name: Name::new("Player"),
+            ..default()
+        })
+        .insert_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Capsule::default())),
             material: materials.add(Color::ALICE_BLUE.into()),
             ..default()

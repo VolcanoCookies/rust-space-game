@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bevy::asset::Assets;
 
 use bevy::input::mouse::MouseMotion;
@@ -11,22 +13,30 @@ use bevy::prelude::{
 };
 use bevy::transform::TransformBundle;
 use bevy::utils::default;
+use bevy_debug_text_overlay::screen_print;
+use bevy_inspector_egui::plugin::InspectorWindows;
 use bevy_rapier3d::geometry::RayIntersection;
 use bevy_rapier3d::math::Real;
 
 use bevy_rapier3d::prelude::{ExternalForce, QueryFilter, RapierContext};
+use bevy_rapier3d::render::DebugRenderContext;
+use bevy_renet::renet::RenetClient;
 use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use iyes_loopless::state::{CurrentState, NextState};
+use leafwing_input_manager::prelude::{ActionState, InputManagerPlugin, InputMap};
+use leafwing_input_manager::{Actionlike, InputManagerBundle};
 
 use crate::math::rotate_vec_by_quat;
-use crate::model::block::{BlockBundle, BlockType};
-use crate::model::block_map::{BlockMap, BlockPosition};
-use crate::model::ship::{Gimbal, ShipBundle, Thrust};
-use crate::resources::block_registry::BlockRegistry;
-use crate::resources::control_input::ControlInput;
-use crate::resources::keybindings::Keybindings;
-
-use super::placement::{BlockPlaceEvent, BlockRemoveEvent};
+use crate::shared::events::player::PlayerMoveEvent;
+use crate::shared::model::block::{BlockBundle, BlockType};
+use crate::shared::model::block_map::{BlockMap, BlockPosition};
+use crate::shared::model::ship::{Gimbal, ShipBundle, Thrust};
+use crate::shared::networking::message::{ClientMessage, NetworkMessage};
+use crate::shared::networking::network_id::NetworkId;
+use crate::shared::placement::{BlockPlaceEvent, BlockRemoveEvent};
+use crate::shared::resources::block_registry::BlockRegistry;
+use crate::shared::resources::control_input::ControlInput;
+use crate::shared::resources::keybindings::Keybindings;
 
 #[derive(Component)]
 pub struct Controlled;
@@ -65,6 +75,8 @@ impl bevy::app::Plugin for ControllerPlugin {
                 yaw: 0.0,
             })
             .insert_resource(ControlInput::default())
+            .add_plugin(InputManagerPlugin::<DebugAction>::default())
+            .add_startup_system(setup)
             .add_system(merge_inputs.label("pre_process"))
             .add_system(block_raycast.label("pre_process"))
             .add_system_set(
@@ -75,6 +87,7 @@ impl bevy::app::Plugin for ControllerPlugin {
                     .with_system(character_controls.run_in_state(ControlState::Character))
                     .with_system(ship_controls.run_in_state(ControlState::Ship)),
             )
+            .add_system(toggle_debug)
             .add_loopless_state(ControlState::Character);
     }
 
@@ -83,8 +96,19 @@ impl bevy::app::Plugin for ControllerPlugin {
     }
 }
 
+fn setup(mut commands: Commands) {
+    commands.spawn_bundle(InputManagerBundle::<DebugAction> {
+        action_state: ActionState::default(),
+        input_map: InputMap::new([
+            (KeyCode::P, DebugAction::ToggleDebugColliders),
+            (KeyCode::I, DebugAction::ToggleInspector),
+        ]),
+    });
+}
+
 pub fn block_raycast(
     mut commands: Commands,
+    character: Res<Character>,
     rapier_context: Res<RapierContext>,
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     parent_query: Query<&Parent>,
@@ -96,10 +120,13 @@ pub fn block_raycast(
         camera_global_transform.forward(),
         Real::MAX,
         true,
-        QueryFilter::new(),
+        QueryFilter::new().exclude_collider(character.0),
     ) {
-        let parent = parent_query.get(entity).unwrap();
-        commands.insert_resource(LookingAt::Block(entity, **parent, intersect));
+        if let Ok((parent)) = parent_query.get(entity) {
+            commands.insert_resource(LookingAt::Block(entity, **parent, intersect));
+        } else {
+            commands.insert_resource(LookingAt::None);
+        }
     } else {
         commands.insert_resource(LookingAt::None);
     }
@@ -151,7 +178,7 @@ pub fn change_control(
     mut current_state: ResMut<CurrentState<ControlState>>,
     controlled_query: Query<Option<Entity>, With<Controlled>>,
     mut transform_query: Query<(&mut Transform, &GlobalTransform)>,
-    camera_query: Query<Entity, With<Camera>>,
+    camera_query: Query<Entity, With<Camera3d>>,
     parent_query: Query<&Parent>,
 ) {
     let opt_controlled_entity = controlled_query.single();
@@ -251,6 +278,32 @@ pub fn control(
 ) {
 }
 
+#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Component)]
+enum DebugAction {
+    ToggleDebugColliders,
+    ToggleDebugPrints,
+    ToggleInspector,
+}
+
+fn toggle_debug(
+    mut debug_render_context: ResMut<DebugRenderContext>,
+    mut inspector_window: ResMut<InspectorWindows>,
+    query: Query<&ActionState<DebugAction>>,
+) {
+    let action_state = query.single();
+
+    if action_state.just_pressed(DebugAction::ToggleDebugColliders) {
+        debug_render_context.enabled = !debug_render_context.enabled;
+        screen_print!("Toggled debug lines");
+    }
+
+    if action_state.just_pressed(DebugAction::ToggleInspector) {
+        let mut inspector_window_data = inspector_window.window_data_mut::<()>();
+        inspector_window_data.visible = !inspector_window_data.visible;
+        screen_print!("Toggled inspector");
+    }
+}
+
 // Resource containing our own character.
 pub struct Character(pub Entity);
 
@@ -264,6 +317,7 @@ fn character_controls(
     time: Res<Time>,
     looking_at: Res<LookingAt>,
     control_input: Res<ControlInput>,
+    mut client: ResMut<RenetClient>,
     mut spawn_ship_events: EventWriter<SpawnShipEvent>,
     mut change_control_events: EventWriter<ChangeControlEvent>,
     controlled_query: Query<Entity, With<Controlled>>,
@@ -365,6 +419,13 @@ fn character_controls(
         camera_controller.pitch = pitch;
         camera_controller.yaw = yaw;
     }
+
+    // Send updated rotation to server
+    let message = ClientMessage::PlayerMove(PlayerMoveEvent {
+        player_network_id: NetworkId(client.client_id()),
+        transform: transform.clone(),
+    });
+    client.send_message(message.channel_id(), bincode::serialize(&message).unwrap());
 }
 
 fn ship_controls(
@@ -460,7 +521,7 @@ fn spawn_ship(
                     })
                     .id();
 
-                block_map.set(block_position, block_entity);
+                block_map.set(block_position, BlockType::Hull, block_entity);
             })
             .insert_bundle(ShipBundle {
                 block_map,

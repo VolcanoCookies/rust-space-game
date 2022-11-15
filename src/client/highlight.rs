@@ -1,14 +1,10 @@
-use bevy::asset::SourceMeta;
-use bevy::input::Input;
 use bevy::math::Vec3;
 
 use bevy::prelude::{Color, GlobalTransform, Query, Res, ResMut, Transform};
 use bevy_prototype_debug_lines::DebugLines;
 
-use crate::math::{rotate_vec_by_quat, translate_with_local_reference_frame};
-use crate::model::block_map::BlockPosition;
-use crate::system::controller::LookingAt;
-use crate::system::controller::LookingAt::Block;
+use crate::client::controller::LookingAt;
+use crate::client::controller::LookingAt::Block;
 
 static CUBE_LINES: [((f32, f32, f32), (f32, f32, f32)); 12] = [
     ((0.5, 0.5, 0.5), (-0.5, 0.5, 0.5)),

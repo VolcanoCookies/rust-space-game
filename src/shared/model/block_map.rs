@@ -1,9 +1,19 @@
 use bevy::prelude::{Component, Entity, Transform, Vec3};
+use bevy::utils::hashbrown::hash_map::Iter;
 use bevy::utils::HashMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Component)]
+use super::block::BlockType;
+
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct BlockMapEntry {
+    pub block_type: BlockType,
+    pub entity: Entity,
+}
+
+#[derive(Component, Serialize, Deserialize, Debug, Clone)]
 pub struct BlockMap {
-    map: HashMap<BlockPosition, Entity>,
+    map: HashMap<BlockPosition, BlockMapEntry>,
     pub block_count: i32,
 }
 
@@ -16,27 +26,51 @@ impl BlockMap {
     }
 
     pub fn get(&self, position: &BlockPosition) -> Option<Entity> {
-        self.map.get(position).cloned()
+        match self.map.get(position) {
+            Some(entry) => Some(entry.entity),
+            None => None,
+        }
     }
 
-    pub fn set(&mut self, position: BlockPosition, entity: Entity) -> Option<Entity> {
-        let opt_old_block = self.map.insert(position, entity);
-        if opt_old_block.is_none() {
+    pub fn get_type(&self, position: &BlockPosition) -> Option<BlockType> {
+        match self.map.get(position) {
+            Some(entry) => Some(entry.block_type),
+            None => None,
+        }
+    }
+
+    pub fn set(
+        &mut self,
+        position: BlockPosition,
+        block_type: BlockType,
+        entity: Entity,
+    ) -> Option<BlockMapEntry> {
+        let opt_old_block_entry = self
+            .map
+            .insert(position, BlockMapEntry { block_type, entity });
+        if opt_old_block_entry.is_none() {
             self.block_count += 1;
         }
-        opt_old_block
+        opt_old_block_entry
     }
 
     pub fn remove(&mut self, position: &BlockPosition) -> Option<Entity> {
-        let opt_old_block = self.map.remove(position);
-        if opt_old_block.is_some() {
+        let opt_old_block_entry = self.map.remove(position);
+        if opt_old_block_entry.is_some() {
             self.block_count -= 1;
         }
-        opt_old_block
+        match opt_old_block_entry {
+            Some(old_block_entry) => Some(old_block_entry.entity),
+            None => None,
+        }
+    }
+
+    pub fn entries(&self) -> Iter<'_, BlockPosition, BlockMapEntry> {
+        self.map.iter()
     }
 }
 
-#[derive(Component, Eq, PartialEq, Hash, Clone, Copy)]
+#[derive(Component, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct BlockPosition {
     pub x: i32,
     pub y: i32,

@@ -2,6 +2,7 @@ use bevy::prelude::{Bundle, Component, PbrBundle};
 use bevy::utils::tracing::Id;
 use bevy_rapier3d::geometry::Collider;
 use bevy_rapier3d::prelude::{Ccd, Sleeping};
+use serde::{Deserialize, Serialize};
 
 use crate::model::block_map::BlockPosition;
 
@@ -31,7 +32,7 @@ impl Default for BlockBundle {
     }
 }
 
-#[derive(Component, Eq, PartialEq, Hash, Clone, Copy)]
+#[derive(Component, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum BlockType {
     Hull,
 }
