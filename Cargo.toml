@@ -35,9 +35,12 @@ public-ip = "0.2.2"
 tokio = {version = "1", features = ["full"]}
 rand = {version = "0.8.5"}
 
-#bevy_prototype_inline_assets = "0.1.0"
+bevy_embedded_assets = "0.4.0"
 bevy-debug-text-overlay = "3.0.0"
 leafwing-input-manager = "0.6.1"
+
+spaccegame_proc_macros = { path = "proc_macros" }
+spacegame_core = { path = "spacegame_core" }
 
 [profile.dev]
 opt-level = 1

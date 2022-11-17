@@ -1,4 +1,6 @@
+use bevy::window::close_on_esc;
 use bevy_debug_text_overlay::OverlayPlugin;
+use bevy_embedded_assets::EmbeddedAssetPlugin;
 use spacegame::*;
 
 use bevy::render::texture::ImageSettings;
@@ -7,10 +9,10 @@ use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_rapier3d::prelude::*;
 use client::controller::{Character, Controlled, ControllerPlugin};
 use resources::keybindings::Keybindings;
+use spacegame::client::controller::CharacterMarker;
 use spacegame::client::networking::ClientNetworkingPlugin;
 use spacegame::client::player::PlayerPlugin;
 use spacegame::client::sync::SyncPlugin;
-use spacegame::placement::PlacementPlugin;
 use spacegame::shared::entities::player::PlayerBundle;
 
 use crate::model::block::BlockType;
@@ -37,7 +39,11 @@ fn main() {
             ..default()
         })
         .insert_resource(Keybindings::default())
-        .add_plugins(DefaultPlugins)
+        .add_plugins_with(DefaultPlugins, |group| {
+            group.add_before::<bevy::asset::AssetPlugin, _>(EmbeddedAssetPlugin)
+        })
+        .add_system(close_on_esc)
+        .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
         .add_plugin(OverlayPlugin::default())
         .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DebugLinesPlugin::with_depth_test(true))
@@ -45,17 +51,15 @@ fn main() {
         .insert_resource(Mouse::default())
         .insert_resource(LookingAt::None)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(RapierDebugRenderPlugin::default().disabled())
         // Insert network
         .add_plugin(ClientNetworkingPlugin)
         .add_plugin(SyncPlugin)
         // Insert game
         .add_startup_system(client_setup)
         .add_plugin(ControllerPlugin)
-        .add_plugin(PlacementPlugin)
         .add_system(client::highlight::highlight_mouse_pressed)
         .add_system(shared::ship::despawn_ship)
-        .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
         .add_system(asset_loaded)
         .add_plugin(PlayerPlugin)
         .run();
@@ -75,7 +79,7 @@ fn client_setup(
 
     // Register block types
     let hull_material = StandardMaterial {
-        base_color_texture: Some(hull_handle),
+        base_color_texture: Some(hull_handle.clone()),
         ..default()
     };
     let hull_material_handle = materials.add(hull_material);
@@ -91,15 +95,34 @@ fn client_setup(
         ..Default::default()
     });
 
-    // Light
-    commands.spawn_bundle(PointLightBundle {
-        point_light: PointLight {
-            intensity: 1500.0,
-            shadows_enabled: true,
+    // THE SUN
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Icosphere {
+                radius: 100.,
+                subdivisions: 12,
+            })),
+            material: materials.add(StandardMaterial {
+                base_color: Color::rgb(1., 0.9, 0.1),
+                emissive: Color::rgb(1., 0.9, 0.1),
+                ..default()
+            }),
             ..default()
-        },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
+        })
+        .insert_bundle(PointLightBundle {
+            point_light: PointLight {
+                intensity: 150000.0,
+                range: 10000.0,
+                shadows_enabled: true,
+                ..default()
+            },
+            transform: Transform::from_xyz(300., 150., 1000.),
+            ..default()
+        });
+
+    commands.insert_resource(AmbientLight {
+        color: Color::rgb(1., 1., 1.),
+        brightness: 0.2,
     });
 
     // Camera
@@ -112,11 +135,13 @@ fn client_setup(
             ..default()
         })
         .insert_bundle(PbrBundle {
+            transform: Transform::from_xyz(0., 3., 0.),
             mesh: meshes.add(Mesh::from(shape::Capsule::default())),
             material: materials.add(Color::ALICE_BLUE.into()),
             ..default()
         })
         .insert(Controlled)
+        .insert(CharacterMarker)
         .add_child(camera_entity)
         .id();
 
@@ -148,7 +173,7 @@ fn client_setup(
         });
 
     // Skybox
-    let skybox_handle = asset_server.load("skybox_big.png");
+    let skybox_handle = asset_server.load("skybox_big_blur.png");
 
     // Insert skybox resource
     commands.insert_resource(Cubemap {

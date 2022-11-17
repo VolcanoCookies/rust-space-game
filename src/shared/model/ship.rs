@@ -2,8 +2,10 @@ use bevy::prelude::{Bundle, Component, ComputedVisibility, Visibility};
 use bevy::transform::TransformBundle;
 use bevy_rapier3d::dynamics::Velocity;
 use bevy_rapier3d::prelude::{Ccd, Damping, ExternalForce, ExternalImpulse, RigidBody, Sleeping};
+use serde::{Deserialize, Serialize};
 
 use crate::model::block_map::BlockMap;
+use crate::networking::network_id::NetworkId;
 
 #[derive(Component)]
 pub struct Thrust {
@@ -86,4 +88,10 @@ impl Default for ShipBundle {
             force: ExternalForce::default(),
         }
     }
+}
+
+#[derive(Component, Serialize, Deserialize, Debug)]
+pub struct Pilot {
+    pub player_network_id: NetworkId,
+    pub player_id: u64,
 }

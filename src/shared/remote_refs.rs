@@ -1,4 +1,4 @@
-use bevy::prelude::{Name, Quat, Transform, Vec3};
+use bevy::prelude::{Quat, Transform, Vec3};
 use bevy_rapier3d::{dynamics::Velocity, prelude::Vect};
 use serde::{Deserialize, Serialize};
 

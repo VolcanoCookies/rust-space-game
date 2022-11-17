@@ -472,6 +472,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_embedded_assets"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce178d2804119cf19829bca46c58a30324c1211bc610955d67413b0ee10e3da"
+dependencies = [
+ "bevy",
+ "cargo-emit",
+]
+
+[[package]]
 name = "bevy_encase_derive"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1072,6 +1082,12 @@ name = "cache-padded"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1db59621ec70f09c5e9b597b220c7a2b43611f4710dc03ceb8748637775692c"
+
+[[package]]
+name = "cargo-emit"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1582e1c9e755dd6ad6b224dcffb135d199399a4568d454bd89fe515ca8425695"
 
 [[package]]
 name = "cc"
@@ -3833,12 +3849,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "spaccegame_proc_macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "spacegame"
 version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy-debug-text-overlay",
  "bevy-inspector-egui",
+ "bevy_embedded_assets",
  "bevy_prototype_debug_lines",
  "bevy_rapier3d",
  "bevy_renet",
@@ -3850,7 +3875,20 @@ dependencies = [
  "public-ip",
  "rand",
  "serde",
+ "spaccegame_proc_macros",
+ "spacegame_core",
  "tokio",
+]
+
+[[package]]
+name = "spacegame_core"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_renet",
+ "bincode",
+ "fastrand",
+ "serde",
 ]
 
 [[package]]

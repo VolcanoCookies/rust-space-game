@@ -46,5 +46,6 @@ impl Default for PlayerBundle {
     }
 }
 
+// Marker for any player entity, not just our own
 #[derive(Component)]
 pub struct PlayerMarker;

@@ -1,12 +1,15 @@
 use bevy::prelude::Plugin;
 
 use crate::{
-    events::player::PlayerDespawnEvent,
+    events::{
+        player::PlayerDespawnEvent,
+        ship::{BlockRemoveEvent, BlockUpdateEvent},
+    },
     shared::events::{
         generic::GenericPositionSyncEvent,
         player::{PlayerMoveEvent, PlayerSpawnEvent},
         ship::{
-            AddBlockEvent, RemoveBlockEvent, SyncShipBlocksEvent, SyncShipEvent,
+            PlaceBlockEvent, RemoveBlockEvent, SyncShipBlocksEvent, SyncShipEvent,
             SyncShipPositionEvent,
         },
     },
@@ -21,12 +24,14 @@ impl Plugin for NetworkingPlugin {
         app.add_event::<SyncShipPositionEvent>()
             .add_event::<SyncShipBlocksEvent>()
             .add_event::<SyncShipEvent>()
-            .add_event::<AddBlockEvent>()
+            .add_event::<PlaceBlockEvent>()
             .add_event::<RemoveBlockEvent>()
             .add_event::<PlayerMoveEvent>()
             .add_event::<GenericPositionSyncEvent>()
             .add_event::<PlayerSpawnEvent>()
             .add_event::<PlayerDespawnEvent>()
+            .add_event::<BlockUpdateEvent>()
+            .add_event::<BlockRemoveEvent>()
             .insert_resource(NetworkIdMap::new())
             .insert_resource(PlayerIdMap::new());
     }

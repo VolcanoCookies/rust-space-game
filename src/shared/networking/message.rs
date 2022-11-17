@@ -3,12 +3,15 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::events::player::PlayerDespawnEvent;
+use crate::events::ship::BlockRemoveEvent;
+use crate::events::ship::BlockUpdateEvent;
+use crate::events::ship::EnterShipEvent;
 use crate::shared::events::generic::GenericPositionSyncEvent;
 use crate::shared::events::player::PlayerMoveEvent;
 use crate::shared::events::player::PlayerSpawnEvent;
 use crate::shared::events::ship::SyncShipEvent;
 use crate::shared::events::ship::{
-    AddBlockEvent, RemoveBlockEvent, SyncShipBlocksEvent, SyncShipPositionEvent,
+    PlaceBlockEvent, RemoveBlockEvent, SyncShipBlocksEvent, SyncShipPositionEvent,
 };
 
 pub trait NetworkMessage {
@@ -21,11 +24,12 @@ pub enum ServerMessage {
     SyncShipBlocks(SyncShipBlocksEvent),
     // To ensure both of the events arrive at the same time
     SyncShip(SyncShipEvent),
-    AddBlock(AddBlockEvent),
-    RemoveBlock(RemoveBlockEvent),
+    BlockUpdate(BlockUpdateEvent),
+    BlockRemove(BlockRemoveEvent),
     GenericPositionSync(GenericPositionSyncEvent),
     PlayerSpawn(PlayerSpawnEvent),
     PlayerDespawn(PlayerDespawnEvent),
+    EnterShip(EnterShipEvent),
 }
 
 impl NetworkMessage for ServerMessage {
@@ -39,9 +43,10 @@ impl NetworkMessage for ServerMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
-    AddBlock(AddBlockEvent),
+    PlaceBlock(PlaceBlockEvent),
     RemoveBlock(RemoveBlockEvent),
     PlayerMove(PlayerMoveEvent),
+    EnterShip(EnterShipEvent),
 }
 
 impl NetworkMessage for ClientMessage {

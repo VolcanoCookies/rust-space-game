@@ -1,4 +1,6 @@
-use bevy::prelude::{Changed, Entity, EventReader, Or, Plugin, Query, ResMut, Transform};
+use bevy::prelude::{
+    Changed, Component, Entity, EventReader, Or, Plugin, Query, ResMut, Transform, With,
+};
 use bevy_rapier3d::prelude::Velocity;
 use bevy_renet::renet::{RenetServer, ServerEvent};
 
@@ -20,7 +22,8 @@ pub struct SyncPlugin;
 
 impl Plugin for SyncPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_system(on_client_connect);
+        app.add_system(on_client_connect)
+            .add_system(generic_position_sync);
     }
 
     fn name(&self) -> &str {
@@ -64,9 +67,18 @@ where
     )
 }
 
+#[derive(Component)]
+pub struct GenericPositionSyncMarker;
+
 fn generic_position_sync(
     mut server: ResMut<RenetServer>,
-    query: Query<(&NetworkId, &Transform, &Velocity), Or<(Changed<Transform>, Changed<Velocity>)>>,
+    query: Query<
+        (&NetworkId, &Transform, &Velocity),
+        (
+            With<GenericPositionSyncMarker>,
+            Or<(Changed<Transform>, Changed<Velocity>)>,
+        ),
+    >,
 ) {
     for (network_id, transform, velocity) in query.iter() {
         let message = ServerMessage::GenericPositionSync(GenericPositionSyncEvent {

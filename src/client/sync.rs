@@ -8,16 +8,17 @@ use bevy::{
 use bevy_rapier3d::prelude::Velocity;
 
 use crate::{
+    events::ship::{BlockRemoveEvent, BlockUpdateEvent},
     model::{
         block::{BlockBundle, BlockType},
-        block_map::{BlockMap, BlockPosition},
+        block_map::{BlockMap, BlockPosition, BlockRotation},
         ship::ShipBundle,
     },
     resources::block_registry::BlockRegistry,
     shared::{
         events::{
             generic::GenericPositionSyncEvent,
-            ship::{AddBlockEvent, SyncShipBlocksEvent, SyncShipEvent, SyncShipPositionEvent},
+            ship::{SyncShipBlocksEvent, SyncShipEvent, SyncShipPositionEvent},
         },
         networking::network_id::NetworkIdMap,
     },
@@ -28,7 +29,9 @@ pub struct SyncPlugin;
 impl Plugin for SyncPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_system(on_sync_ship)
-            .add_system(on_generic_position_sync);
+            .add_system(on_generic_position_sync)
+            .add_system(on_block_update)
+            .add_system(on_block_remove);
     }
 
     fn name(&self) -> &str {
@@ -65,6 +68,7 @@ fn on_sync_ship(
                     velocity: event.velocity,
                     ..default()
                 })
+                .insert(event.ship_network_id)
                 .id();
 
             network_ids.insert_with_network_id(ship_entity, event.ship_network_id);
@@ -108,14 +112,14 @@ fn on_sync_ship_blocks(
 ) {
 }
 
-fn on_add_block(
+fn on_block_update(
     mut commands: Commands,
     block_registry: Res<BlockRegistry>,
     mut network_ids: ResMut<NetworkIdMap>,
-    mut add_block_event: EventReader<AddBlockEvent>,
+    mut events: EventReader<BlockUpdateEvent>,
     mut ship_query: Query<&mut BlockMap>,
 ) {
-    for event in add_block_event.iter() {
+    for event in events.iter() {
         if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
             if let Ok((mut block_map)) = ship_query.get_mut(ship_entity) {
                 spawn_block(
@@ -125,10 +129,28 @@ fn on_add_block(
                     &ship_entity,
                     event.block_position,
                     event.block_type,
+                    event.block_rotation,
                 );
             }
         } else {
             warn!("Trying to add block to unknown ship!")
+        }
+    }
+}
+
+fn on_block_remove(
+    mut commands: Commands,
+    block_registry: Res<BlockRegistry>,
+    mut network_ids: ResMut<NetworkIdMap>,
+    mut events: EventReader<BlockRemoveEvent>,
+    mut ship_query: Query<&mut BlockMap>,
+) {
+    for event in events.iter() {
+        if let Some((ship_entity)) = network_ids.from_network(event.ship_network_id) {
+            let (mut block_map) = ship_query.get_mut(ship_entity).unwrap();
+            if let Some(entity) = block_map.remove(&event.block_position) {
+                commands.entity(entity).despawn_recursive();
+            }
         }
     }
 }
@@ -156,24 +178,11 @@ fn sync_blocks(
             ship_entity,
             *pos,
             entry.block_type,
+            entry.block_rotation,
         );
     }
 
     return_map
-}
-
-fn remove_block(
-    commands: &mut Commands,
-    ship_entity: &Entity,
-    block_map: &mut BlockMap,
-    block_position: BlockPosition,
-) {
-    if let Some(block_entity) = block_map.remove(&block_position) {
-        commands
-            .entity(*ship_entity)
-            .remove_children(&[block_entity]);
-        commands.entity(block_entity).despawn_recursive();
-    }
 }
 
 fn spawn_block(
@@ -183,10 +192,12 @@ fn spawn_block(
     ship_entity: &Entity,
     block_position: BlockPosition,
     block_type: BlockType,
+    block_rotation: BlockRotation,
 ) -> Entity {
     let block_entity = create_block(commands, block_registry, block_position, block_type);
     commands.entity(*ship_entity).add_child(block_entity);
-    if let Some(old_block) = block_map.set(block_position, block_type, block_entity) {
+    if let Some(old_block) = block_map.set(block_entity, block_type, block_position, block_rotation)
+    {
         commands.entity(old_block.entity).despawn_recursive();
     }
 

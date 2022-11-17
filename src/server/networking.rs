@@ -5,8 +5,8 @@ use std::{
 
 use bevy::{
     prelude::{
-        default, info, warn, Commands, CoreStage, DespawnRecursiveExt, EventReader, Name, Plugin,
-        Query, Res, ResMut, SystemSet, SystemStage, Transform, With,
+        default, info, warn, Commands, CoreStage, DespawnRecursiveExt, EventReader, EventWriter,
+        Name, Plugin, Query, Res, ResMut, SystemSet, SystemStage, Transform, With,
     },
     transform::TransformBundle,
 };
@@ -22,7 +22,10 @@ use local_ip_address::local_ip;
 
 use crate::{
     entities::physic_object::PhysicsObjectBundle,
-    events::player::PlayerDespawnEvent,
+    events::{
+        player::PlayerDespawnEvent,
+        ship::{PlaceBlockEvent, RemoveBlockEvent},
+    },
     shared::{
         entities::player::{PlayerBundle, PlayerMarker},
         events::{generic::GenericPositionSyncEvent, player::PlayerSpawnEvent},
@@ -36,10 +39,42 @@ use crate::{
     PROTOCOL_ID,
 };
 
+pub struct NetworkServer;
+
+impl NetworkServer {
+    /// Send a message to a client over a channel.
+    pub fn send_message(server: &mut RenetServer, client_id: u64, message: ServerMessage) {
+        server.send_message(
+            client_id,
+            message.channel_id(),
+            bincode::serialize(&message).unwrap(),
+        );
+    }
+
+    /// Send a message to all client, except the specified one, over a channel.
+    pub fn broadcast_message_except(
+        server: &mut RenetServer,
+        client_id: u64,
+        message: ServerMessage,
+    ) {
+        server.broadcast_message_except(
+            client_id,
+            message.channel_id(),
+            bincode::serialize(&message).unwrap(),
+        )
+    }
+
+    /// Send a message to all client over a channel.
+    pub fn broadcast_message(server: &mut RenetServer, message: ServerMessage) {
+        server.broadcast_message(message.channel_id(), bincode::serialize(&message).unwrap());
+    }
+}
+
 pub struct ServerNetworkingPlugin;
 
 impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
+        let mut server = create_renet_server();
         app.add_plugin(NetworkingPlugin)
             .add_plugin(RenetServerPlugin)
             .add_system(on_client_connect)
@@ -47,7 +82,7 @@ impl Plugin for ServerNetworkingPlugin {
                 CoreStage::PreUpdate,
                 SystemSet::new().with_system(receive_network_events),
             )
-            .insert_resource(create_renet_server());
+            .insert_resource(server);
     }
 
     fn name(&self) -> &str {
@@ -156,14 +191,16 @@ fn receive_network_events(
     player_ids: Res<PlayerIdMap>,
     network_ids: Res<NetworkIdMap>,
     mut server: ResMut<RenetServer>,
+    mut place_block_events: EventWriter<PlaceBlockEvent>,
+    mut remove_block_events: EventWriter<RemoveBlockEvent>,
 ) {
     let reliable_channel_id = ReliableChannelConfig::default().channel_id;
     for client_id in server.clients_id() {
         while let Some(message) = server.receive_message(client_id, reliable_channel_id) {
             let client_message: ClientMessage = bincode::deserialize(&message).unwrap();
             match client_message {
-                ClientMessage::AddBlock(_) => todo!(),
-                ClientMessage::RemoveBlock(_) => todo!(),
+                ClientMessage::PlaceBlock(event) => place_block_events.send(event),
+                ClientMessage::RemoveBlock(event) => remove_block_events.send(event),
                 ClientMessage::PlayerMove(player_move_event) => {
                     let player_entity = player_ids.from_client(client_id).unwrap();
                     let player_network_id = network_ids.from_entity(player_entity).unwrap();
