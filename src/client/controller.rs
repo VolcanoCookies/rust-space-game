@@ -22,19 +22,18 @@ use bevy_renet::renet::RenetClient;
 use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
 use iyes_loopless::state::{CurrentState, NextState};
 use leafwing_input_manager::prelude::{ActionState, InputManagerPlugin, InputMap};
-use leafwing_input_manager::{action_state, Actionlike, InputManagerBundle};
+use leafwing_input_manager::{Actionlike, InputManagerBundle};
+use spacegame_core::network_id::{NetworkId, NetworkIdMap};
 
-use crate::events::ship::{EnterShipEvent, PlaceBlockEvent, RemoveBlockEvent};
+use crate::events::ship::{BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent};
 use crate::math::rotate_vec_by_quat;
 use crate::model::block_map::BlockRotation;
 
-use crate::networking::network_id::{self, NetworkIdMap};
 use crate::shared::events::player::PlayerMoveEvent;
 use crate::shared::model::block::BlockType;
 use crate::shared::model::block_map::BlockPosition;
 use crate::shared::model::ship::{Gimbal, Thrust};
 use crate::shared::networking::message::{ClientMessage, NetworkMessage};
-use crate::shared::networking::network_id::NetworkId;
 
 use crate::shared::resources::control_input::ControlInput;
 use crate::shared::resources::keybindings::Keybindings;
@@ -376,8 +375,8 @@ fn character_controls(
 
             NetworkClient::send(
                 &mut client,
-                ClientMessage::PlaceBlock(PlaceBlockEvent {
-                    ship_network_id: *network_id,
+                ClientMessage::UpdateBlock(BlockUpdateEvent {
+                    ship_entity: network_id.into(),
                     block_type: BlockType::Hull,
                     block_position,
                     block_rotation: BlockRotation::default(),
@@ -389,8 +388,8 @@ fn character_controls(
 
             NetworkClient::send(
                 &mut client,
-                ClientMessage::RemoveBlock(RemoveBlockEvent {
-                    ship_network_id: *network_id,
+                ClientMessage::RemoveBlock(BlockRemoveEvent {
+                    ship_entity: network_id.into(),
                     block_position: *block_position,
                 }),
             );
@@ -401,7 +400,7 @@ fn character_controls(
             NetworkClient::send(
                 &mut client,
                 ClientMessage::EnterShip(EnterShipEvent {
-                    ship_network_id: *network_id,
+                    ship_entity: network_id.into(),
                 }),
             );
         }
@@ -421,8 +420,6 @@ fn on_enter_ship(
     let camera_entity = camera_query.single();
 
     for event in events.iter() {
-        let ship_entity = network_ids.from_network(event.ship_network_id).unwrap();
-
         // Remove controlled from old entity and detach camera
         commands
             .entity(old_controlled_entity)
@@ -431,7 +428,7 @@ fn on_enter_ship(
 
         // Add controlled to new entity and attach camera
         commands
-            .entity(ship_entity)
+            .entity(event.ship_entity)
             .insert(Controlled)
             .add_child(camera_entity);
 
@@ -441,7 +438,7 @@ fn on_enter_ship(
         *camera_transform = Transform::default();
 
         // Convert the characters world coordinates to local ship relative coordinates
-        let ship_transform = transform_query.get(ship_entity).unwrap().0.clone();
+        let ship_transform = transform_query.get(event.ship_entity).unwrap().0.clone();
         let (mut character_transform, character_global_transform) =
             transform_query.get_mut(character.0).unwrap();
         character_transform.translation =
@@ -538,7 +535,7 @@ fn character_movement(
 
     // Send updated rotation to server
     let message = ClientMessage::PlayerMove(PlayerMoveEvent {
-        player_network_id: NetworkId(client.client_id()),
+        client_id: client.client_id(),
         transform: transform.clone(),
     });
     client.send_message(message.channel_id(), bincode::serialize(&message).unwrap());

@@ -7,13 +7,11 @@ use bevy::{
 };
 use bevy_debug_text_overlay::screen_print;
 use iyes_loopless::prelude::IntoConditionalSystem;
+use spacegame_core::network_id::NetworkIdMap;
 
 use crate::{
     events::player::PlayerDespawnEvent,
-    shared::{
-        entities::player::PlayerBundle, events::player::PlayerSpawnEvent,
-        networking::network_id::NetworkIdMap,
-    },
+    shared::{entities::player::PlayerBundle, events::player::PlayerSpawnEvent},
 };
 
 pub struct PlayerPlugin;
@@ -37,19 +35,17 @@ fn on_player_spawn(
     mut events: EventReader<PlayerSpawnEvent>,
 ) {
     for event in events.iter() {
-        let entity = commands
-            .spawn_bundle(PlayerBundle {
+        commands
+            .entity(event.player_entity)
+            .insert_bundle(PlayerBundle {
                 name: Name::new(event.player_name.clone()),
-                network_id: event.player_network_id,
                 ..default()
             })
             .insert_bundle(PbrBundle {
                 mesh: meshes.add(mesh::Mesh::from(mesh::shape::Capsule::default())),
                 material: materials.add(Color::ORANGE.into()),
                 ..default()
-            })
-            .id();
-        network_ids.insert_with_network_id(entity, event.player_network_id);
+            });
 
         screen_print!("Spawned player");
     }
@@ -61,11 +57,9 @@ fn on_player_despawn(
     mut events: EventReader<PlayerDespawnEvent>,
 ) {
     for event in events.iter() {
-        if let Some(player_entity) = network_ids.from_network(event.player_network_id) {
-            commands.entity(player_entity).despawn_recursive();
-            network_ids.remove_network(&event.player_network_id);
+        commands.entity(event.player_entity).despawn_recursive();
+        network_ids.remove(event.player_entity);
 
-            screen_print!("Despawned player");
-        }
+        screen_print!("Despawned player");
     }
 }

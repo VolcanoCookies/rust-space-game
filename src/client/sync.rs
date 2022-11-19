@@ -1,26 +1,20 @@
-use bevy::{
-    prelude::{
-        default, warn, BuildChildren, Commands, DespawnRecursiveExt, Entity, EventReader,
-        PbrBundle, Plugin, Query, Res, ResMut, Transform,
-    },
-    transform::TransformBundle,
+use bevy::prelude::{
+    default, warn, BuildChildren, Commands, DespawnRecursiveExt, Entity, EventReader, PbrBundle,
+    Plugin, Query, Res, ResMut, Transform,
 };
 use bevy_rapier3d::prelude::Velocity;
+use spacegame_core::network_id::NetworkIdMap;
 
 use crate::{
     events::ship::{BlockRemoveEvent, BlockUpdateEvent},
     model::{
         block::{BlockBundle, BlockType},
         block_map::{BlockMap, BlockPosition, BlockRotation},
-        ship::ShipBundle,
     },
     resources::block_registry::BlockRegistry,
-    shared::{
-        events::{
-            generic::GenericPositionSyncEvent,
-            ship::{SyncShipBlocksEvent, SyncShipEvent, SyncShipPositionEvent},
-        },
-        networking::network_id::NetworkIdMap,
+    shared::events::{
+        generic::GenericPositionSyncEvent,
+        ship::{SyncShipBlocksEvent, SyncShipEvent, SyncShipPositionEvent},
     },
 };
 
@@ -47,42 +41,37 @@ fn on_sync_ship(
     mut ship_query: Query<(&mut Transform, &mut Velocity, &mut BlockMap)>,
 ) {
     for event in ship_events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            if let Ok((mut transform, mut velocity, mut block_map)) =
-                ship_query.get_mut(ship_entity)
-            {
-                *transform = event.transform;
-                *velocity = event.velocity;
-                *block_map = event.block_map.clone();
-            } else {
-                warn!(" This is not good !")
-            }
-        } else {
-            // Spawn new ship
-            let ship_entity = commands
-                .spawn_bundle(ShipBundle {
-                    transform_bundle: TransformBundle {
-                        local: event.transform,
-                        ..default()
-                    },
-                    velocity: event.velocity,
-                    ..default()
-                })
-                .insert(event.ship_network_id)
-                .id();
-
-            network_ids.insert_with_network_id(ship_entity, event.ship_network_id);
-
-            let map = sync_blocks(
-                &mut commands,
-                &block_registry,
-                &BlockMap::new(),
-                &event.block_map,
-                &ship_entity,
-            );
-
-            commands.entity(ship_entity).insert(map);
+        if let Ok((mut transform, mut velocity, mut block_map)) =
+            ship_query.get_mut(event.ship_entity)
+        {
+            *transform = event.transform;
+            *velocity = event.velocity;
+            *block_map = event.block_map.clone();
         }
+        // // Spawn new ship
+        // let ship_entity = commands
+        //     .spawn_bundle(ShipBundle {
+        //         transform_bundle: TransformBundle {
+        //             local: event.transform,
+        //             ..default()
+        //         },
+        //         velocity: event.velocity,
+        //         ..default()
+        //     })
+        //     .insert(event.ship_network_id)
+        //     .id();
+
+        // network_ids.insert_with_network_id(ship_entity, event.ship_network_id);
+
+        // let map = sync_blocks(
+        //     &mut commands,
+        //     &block_registry,
+        //     &BlockMap::new(),
+        //     &event.block_map,
+        //     &ship_entity,
+        // );
+
+        // commands.entity(ship_entity).insert(map);
     }
 }
 
@@ -92,15 +81,9 @@ fn on_sync_ship_positon(
     mut ship_query: Query<(&mut Transform, &mut Velocity)>,
 ) {
     for event in ship_events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            if let Ok((mut transform, mut velocity)) = ship_query.get_mut(ship_entity) {
-                *transform = event.transform;
-                *velocity = event.velocity;
-            } else {
-                warn!(" This is not good X2 !")
-            }
-        } else {
-            warn!("Trying to sync position of unknown ship!")
+        if let Ok((mut transform, mut velocity)) = ship_query.get_mut(event.ship_entity) {
+            *transform = event.transform;
+            *velocity = event.velocity;
         }
     }
 }
@@ -120,21 +103,16 @@ fn on_block_update(
     mut ship_query: Query<&mut BlockMap>,
 ) {
     for event in events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            if let Ok((mut block_map)) = ship_query.get_mut(ship_entity) {
-                spawn_block(
-                    &mut commands,
-                    &block_registry,
-                    &mut block_map,
-                    &ship_entity,
-                    event.block_position,
-                    event.block_type,
-                    event.block_rotation,
-                );
-            }
-        } else {
-            warn!("Trying to add block to unknown ship!")
-        }
+        let mut block_map = ship_query.get_mut(event.ship_entity).unwrap();
+        spawn_block(
+            &mut commands,
+            &block_registry,
+            &mut block_map,
+            &event.ship_entity,
+            event.block_position,
+            event.block_type,
+            event.block_rotation,
+        );
     }
 }
 
@@ -146,11 +124,9 @@ fn on_block_remove(
     mut ship_query: Query<&mut BlockMap>,
 ) {
     for event in events.iter() {
-        if let Some((ship_entity)) = network_ids.from_network(event.ship_network_id) {
-            let (mut block_map) = ship_query.get_mut(ship_entity).unwrap();
-            if let Some(entity) = block_map.remove(&event.block_position) {
-                commands.entity(entity).despawn_recursive();
-            }
+        let mut block_map = ship_query.get_mut(event.ship_entity).unwrap();
+        if let Some(entity) = block_map.remove(&event.block_position) {
+            commands.entity(entity).despawn_recursive();
         }
     }
 }
@@ -231,11 +207,9 @@ fn on_generic_position_sync(
     mut events: EventReader<GenericPositionSyncEvent>,
 ) {
     for event in events.iter() {
-        if let Some(entity) = network_ids.from_network(event.network_id) {
-            if let Ok((mut transform, mut velocity)) = query.get_mut(entity) {
-                *transform = event.transform;
-                *velocity = event.velocity;
-            }
+        if let Ok((mut transform, mut velocity)) = query.get_mut(event.entity) {
+            *transform = event.transform;
+            *velocity = event.velocity;
         }
     }
 }

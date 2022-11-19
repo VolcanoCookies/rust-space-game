@@ -1,15 +1,20 @@
 [package]
-name = "spaccegame_proc_macros"
+name = "spacegame_proc_macros"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "spaccegame_proc_macros"
+name = "spacegame_proc_macros"
 path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
-syn = {version="1.0.57", features=["full", "fold"]}
-quote = "1.0.8"
+syn = {version="1.0.59", features=["full", "fold"]}
+quote = "1.0.21"
+bevy = "0.8.1"
+proc-macro2 = "1.0"
+bevy_macro_utils = "0.8.1"
+
+spacegame_core = { path = "../spacegame_core" }

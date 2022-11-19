@@ -1,11 +1,11 @@
-use bevy::prelude::{Bundle, Component, ComputedVisibility, Visibility};
+use bevy::prelude::{Bundle, Component, ComputedVisibility, Entity, Visibility};
 use bevy::transform::TransformBundle;
 use bevy_rapier3d::dynamics::Velocity;
 use bevy_rapier3d::prelude::{Ccd, Damping, ExternalForce, ExternalImpulse, RigidBody, Sleeping};
 use serde::{Deserialize, Serialize};
+use spaccegame_proc_macros::NetworkEvent;
 
 use crate::model::block_map::BlockMap;
-use crate::networking::network_id::NetworkId;
 
 #[derive(Component)]
 pub struct Thrust {
@@ -90,8 +90,10 @@ impl Default for ShipBundle {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Debug)]
+#[derive(Component, Serialize, Deserialize, Debug, NetworkEvent)]
 pub struct Pilot {
-    pub player_network_id: NetworkId,
+    #[networkEntity]
+    #[dropIfNone]
+    pub player_entity: Entity,
     pub player_id: u64,
 }

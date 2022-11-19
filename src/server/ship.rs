@@ -1,17 +1,15 @@
 use bevy::prelude::{Commands, DespawnRecursiveExt, EventReader, Plugin, Query, Res, ResMut, With};
 use bevy_renet::renet::RenetServer;
+use spacegame_core::network_id::{NetworkId, NetworkIdMap};
 
 use crate::{
-    client::controller::ShipMarker,
-    events::ship::{
-        BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent, PlaceBlockEvent, RemoveBlockEvent,
-    },
+    events::ship::{BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent},
     model::{
         block::BlockBundle,
-        block_map::{self, BlockMap},
+        block_map::BlockMap,
         ship::{Pilot, Ship},
     },
-    networking::{message::ServerMessage, network_id::NetworkIdMap},
+    networking::message::ServerMessage,
 };
 
 use super::networking::NetworkServer;
@@ -32,65 +30,60 @@ fn on_block_place(
     mut commands: Commands,
     network_ids: Res<NetworkIdMap>,
     mut server: ResMut<RenetServer>,
-    mut events: EventReader<PlaceBlockEvent>,
+    mut events: EventReader<BlockUpdateEvent>,
     mut query: Query<&mut BlockMap>,
 ) {
     for event in events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            let mut block_map = query.get_mut(ship_entity).unwrap();
-            // TODO: Check if an identical block already exists here
-            let block_entity = commands
-                .spawn_bundle(BlockBundle::new(
-                    event.block_type,
-                    event.block_position,
-                    event.block_rotation,
-                ))
-                .id();
-
-            NetworkServer::broadcast_message(
-                &mut server,
-                ServerMessage::BlockUpdate(BlockUpdateEvent {
-                    ship_network_id: event.ship_network_id,
-                    block_type: event.block_type,
-                    block_position: event.block_position,
-                    block_rotation: event.block_rotation,
-                }),
-            );
-
-            if let Some(old_block) = block_map.set(
-                block_entity,
+        let mut block_map = query.get_mut(event.ship_entity).unwrap();
+        // TODO: Check if an identical block already exists here
+        let block_entity = commands
+            .spawn_bundle(BlockBundle::new(
                 event.block_type,
                 event.block_position,
                 event.block_rotation,
-            ) {
-                commands.entity(old_block.entity).despawn_recursive();
-            }
+            ))
+            .id();
+
+        NetworkServer::broadcast_message(
+            &mut server,
+            ServerMessage::BlockUpdate(BlockUpdateEvent {
+                ship_entity: event.ship_entity,
+                block_type: event.block_type,
+                block_position: event.block_position,
+                block_rotation: event.block_rotation,
+            }),
+        );
+
+        if let Some(old_block) = block_map.set(
+            block_entity,
+            event.block_type,
+            event.block_position,
+            event.block_rotation,
+        ) {
+            commands.entity(old_block.entity).despawn_recursive();
         }
     }
 }
 
 fn on_block_remove(
     mut commands: Commands,
-    network_ids: Res<NetworkIdMap>,
     mut server: ResMut<RenetServer>,
-    mut events: EventReader<RemoveBlockEvent>,
-    mut query: Query<&mut BlockMap>,
+    mut events: EventReader<BlockRemoveEvent>,
+    mut query: Query<(&NetworkId, &mut BlockMap)>,
 ) {
     for event in events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            let (mut block_map) = query.get_mut(ship_entity).unwrap();
+        let (network_id, mut block_map) = query.get_mut(event.ship_entity).unwrap();
 
-            if let Some(old_block_entity) = block_map.remove(&event.block_position) {
-                NetworkServer::broadcast_message(
-                    &mut server,
-                    ServerMessage::BlockRemove(BlockRemoveEvent {
-                        ship_network_id: event.ship_network_id,
-                        block_position: event.block_position,
-                    }),
-                );
+        if let Some(old_block_entity) = block_map.remove(&event.block_position) {
+            NetworkServer::broadcast_message(
+                &mut server,
+                ServerMessage::BlockRemove(BlockRemoveEvent {
+                    ship_entity: network_id.into(),
+                    block_position: event.block_position,
+                }),
+            );
 
-                commands.entity(old_block_entity).despawn_recursive();
-            }
+            commands.entity(old_block_entity).despawn_recursive();
         }
     }
 }

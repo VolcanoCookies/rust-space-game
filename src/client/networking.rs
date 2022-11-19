@@ -103,6 +103,7 @@ fn receive_network_events(
             ServerMessage::PlayerSpawn(event) => player_spawn_events.send(event),
             ServerMessage::PlayerDespawn(event) => player_despawn_events.send(event),
             ServerMessage::BlockRemove(event) => block_remove_events.send(event),
+            ServerMessage::EnterShip(event) => todo!(),
         }
     }
 }

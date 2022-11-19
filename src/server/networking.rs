@@ -4,9 +4,10 @@ use std::{
 };
 
 use bevy::{
+    ecs::event::Event,
     prelude::{
-        default, info, warn, Commands, CoreStage, DespawnRecursiveExt, EventReader, EventWriter,
-        Name, Plugin, Query, Res, ResMut, SystemSet, SystemStage, Transform, With,
+        default, Commands, CoreStage, DespawnRecursiveExt, EventReader, EventWriter, Name, Plugin,
+        Query, Res, ResMut, SystemSet, Transform, With,
     },
     transform::TransformBundle,
 };
@@ -19,19 +20,22 @@ use bevy_renet::{
     RenetServerPlugin,
 };
 use local_ip_address::local_ip;
+use spacegame_core::{
+    network_id::{NetworkId, NetworkIdMap},
+    NetworkEvent,
+};
 
 use crate::{
     entities::physic_object::PhysicsObjectBundle,
     events::{
         player::PlayerDespawnEvent,
-        ship::{PlaceBlockEvent, RemoveBlockEvent},
+        ship::{BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent},
     },
     shared::{
         entities::player::{PlayerBundle, PlayerMarker},
         events::{generic::GenericPositionSyncEvent, player::PlayerSpawnEvent},
         networking::{
             message::{ClientMessage, NetworkMessage, ServerMessage},
-            network_id::{NetworkId, NetworkIdMap},
             player_id::PlayerIdMap,
             plugin::NetworkingPlugin,
         },
@@ -127,7 +131,6 @@ fn on_client_connect(
 
                 let transform = Transform::from_xyz(0., 3., 0.);
 
-                let network_id = NetworkId::random();
                 let player_entity = commands
                     .spawn_bundle(PlayerBundle {
                         physics_object: PhysicsObjectBundle {
@@ -138,16 +141,16 @@ fn on_client_connect(
                             ..default()
                         },
                         name: Name::new(client_id.to_string()),
-                        network_id,
                         ..default()
                     })
                     .id();
-                network_ids.insert_with_network_id(player_entity, network_id);
+                let network_id = network_ids.insert(player_entity);
+                commands.entity(player_entity).insert(network_id);
                 player_ids.insert(*client_id, player_entity);
 
                 for (player_name, player_network_id) in player_query.iter() {
                     let message = ServerMessage::PlayerSpawn(PlayerSpawnEvent {
-                        player_network_id: *player_network_id,
+                        player_entity: player_network_id.into(),
                         player_name: player_name.to_string(),
                         transform,
                     });
@@ -159,7 +162,7 @@ fn on_client_connect(
                 }
 
                 let message = ServerMessage::PlayerSpawn(PlayerSpawnEvent {
-                    player_network_id: network_id,
+                    player_entity: network_id.into(),
                     player_name: client_id.to_string(),
                     transform,
                 });
@@ -178,7 +181,7 @@ fn on_client_connect(
                 commands.entity(player_entity).despawn_recursive();
 
                 let message = ServerMessage::PlayerDespawn(PlayerDespawnEvent {
-                    player_network_id: network_id,
+                    player_entity: network_id.into(),
                 });
                 server
                     .broadcast_message(message.channel_id(), bincode::serialize(&message).unwrap());
@@ -188,25 +191,40 @@ fn on_client_connect(
 }
 
 fn receive_network_events(
+    mut commands: Commands,
     player_ids: Res<PlayerIdMap>,
-    network_ids: Res<NetworkIdMap>,
+    mut network_ids: ResMut<NetworkIdMap>,
     mut server: ResMut<RenetServer>,
-    mut place_block_events: EventWriter<PlaceBlockEvent>,
-    mut remove_block_events: EventWriter<RemoveBlockEvent>,
+    mut block_update_events: EventWriter<BlockUpdateEvent>,
+    mut block_remove_events: EventWriter<BlockRemoveEvent>,
+    mut enter_ship_events: EventWriter<EnterShipEvent>,
 ) {
     let reliable_channel_id = ReliableChannelConfig::default().channel_id;
     for client_id in server.clients_id() {
         while let Some(message) = server.receive_message(client_id, reliable_channel_id) {
             let client_message: ClientMessage = bincode::deserialize(&message).unwrap();
             match client_message {
-                ClientMessage::PlaceBlock(event) => place_block_events.send(event),
-                ClientMessage::RemoveBlock(event) => remove_block_events.send(event),
+                ClientMessage::UpdateBlock(event) => {
+                    pass_event(
+                        event,
+                        &mut commands,
+                        &mut network_ids,
+                        &mut block_update_events,
+                    );
+                }
+                ClientMessage::RemoveBlock(event) => {
+                    pass_event(
+                        event,
+                        &mut commands,
+                        &mut network_ids,
+                        &mut block_remove_events,
+                    );
+                }
                 ClientMessage::PlayerMove(player_move_event) => {
                     let player_entity = player_ids.from_client(client_id).unwrap();
-                    let player_network_id = network_ids.from_entity(player_entity).unwrap();
 
                     let message = ServerMessage::GenericPositionSync(GenericPositionSyncEvent {
-                        network_id: player_network_id,
+                        entity: player_entity,
                         transform: player_move_event.transform,
                         velocity: Velocity::zero(),
                     });
@@ -216,7 +234,26 @@ fn receive_network_events(
                         bincode::serialize(&message).unwrap(),
                     );
                 }
+                ClientMessage::EnterShip(event) => {
+                    pass_event(
+                        event,
+                        &mut commands,
+                        &mut network_ids,
+                        &mut enter_ship_events,
+                    );
+                }
             }
         }
+    }
+}
+
+fn pass_event<T: NetworkEvent + Event>(
+    mut event: T,
+    commands: &mut Commands,
+    network_ids: &mut NetworkIdMap,
+    place_block_events: &mut EventWriter<T>,
+) {
+    if event.network_to_entity(commands, network_ids) {
+        place_block_events.send(event);
     }
 }

@@ -10,9 +10,7 @@ use crate::shared::events::generic::GenericPositionSyncEvent;
 use crate::shared::events::player::PlayerMoveEvent;
 use crate::shared::events::player::PlayerSpawnEvent;
 use crate::shared::events::ship::SyncShipEvent;
-use crate::shared::events::ship::{
-    PlaceBlockEvent, RemoveBlockEvent, SyncShipBlocksEvent, SyncShipPositionEvent,
-};
+use crate::shared::events::ship::{SyncShipBlocksEvent, SyncShipPositionEvent};
 
 pub trait NetworkMessage {
     fn channel_id(&self) -> u8;
@@ -43,8 +41,8 @@ impl NetworkMessage for ServerMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
-    PlaceBlock(PlaceBlockEvent),
-    RemoveBlock(RemoveBlockEvent),
+    UpdateBlock(BlockUpdateEvent),
+    RemoveBlock(BlockRemoveEvent),
     PlayerMove(PlayerMoveEvent),
     EnterShip(EnterShipEvent),
 }

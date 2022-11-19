@@ -4,12 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "spaccegame_core"
+name = "spacegame_core"
 path = "src/lib.rs"
 
 [dependencies]
-bevy = "*"
+bevy = "0.8.1"
 bevy_renet = "*"
 serde = "*"
 bincode = "*"
 fastrand = "*"
+downcast-rs = "*"
+derive_more = "*"
+dashmap = "*"
+erased-serde = "*"
+# Implement magnetic later to see performance difference
+#magnetic = "2.4.1"
+
+unique-type-id =  { git = "https://github.com/vityafx/unique-type-id.git", rev = "8d6fd0a3b872897b3a5b3dd8d3621053a5975d79" }
+unique-type-id-derive = { git = "https://github.com/vityafx/unique-type-id.git", rev = "8d6fd0a3b872897b3a5b3dd8d3621053a5975d79" }

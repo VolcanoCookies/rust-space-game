@@ -9,8 +9,6 @@ use bevy_rapier3d::prelude::{
     RigidBody, Sleeping, Velocity,
 };
 
-use crate::shared::networking::network_id::NetworkId;
-
 use super::physic_object::PhysicsObjectBundle;
 
 #[derive(Bundle)]
@@ -18,7 +16,6 @@ pub struct PlayerBundle {
     #[bundle]
     pub physics_object: PhysicsObjectBundle,
     pub name: Name,
-    pub network_id: NetworkId,
     pub dominance: Dominance,
     pub marker: PlayerMarker,
 }
@@ -40,7 +37,6 @@ impl Default for PlayerBundle {
             },
             dominance: Dominance { groups: -1 },
             name: Default::default(),
-            network_id: Default::default(),
             marker: PlayerMarker,
         }
     }

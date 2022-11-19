@@ -2,6 +2,7 @@ use bevy::prelude::{
     default, warn, Commands, Entity, EventReader, PbrBundle, Query, ResMut, Transform,
 };
 use bevy_rapier3d::prelude::Velocity;
+use spacegame_core::network_id::NetworkIdMap;
 
 use crate::{
     model::{
@@ -9,7 +10,7 @@ use crate::{
         block_map::BlockPosition,
     },
     resources::block_registry::BlockRegistry,
-    shared::{events::ship::SyncShipPositionEvent, networking::network_id::NetworkIdMap},
+    shared::events::ship::SyncShipPositionEvent,
 };
 
 pub fn sync_ship_position(
@@ -19,15 +20,10 @@ pub fn sync_ship_position(
     mut ship_query: Query<(&mut Transform, &mut Velocity)>,
 ) {
     for event in events.iter() {
-        if let Some(ship_entity) = network_ids.from_network(event.ship_network_id) {
-            // Sync existing ship
-            if let Ok((mut ship_transform, mut ship_velocity)) = ship_query.get_mut(ship_entity) {
-                *ship_transform = event.transform;
-                *ship_velocity = event.velocity;
-            }
-        } else {
-            // Spawn new ship
-            warn!("Got sync ship event for unknown ship");
+        // Sync existing ship
+        if let Ok((mut ship_transform, mut ship_velocity)) = ship_query.get_mut(event.ship_entity) {
+            *ship_transform = event.transform;
+            *ship_velocity = event.velocity;
         }
     }
 }

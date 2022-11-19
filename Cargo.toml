@@ -39,8 +39,11 @@ bevy_embedded_assets = "0.4.0"
 bevy-debug-text-overlay = "3.0.0"
 leafwing-input-manager = "0.6.1"
 
-spaccegame_proc_macros = { path = "proc_macros" }
+spacegame_proc_macros = { path = "proc_macros" }
 spacegame_core = { path = "spacegame_core" }
+
+unique-type-id =  { git = "https://github.com/vityafx/unique-type-id.git", rev = "8d6fd0a3b872897b3a5b3dd8d3621053a5975d79" }
+unique-type-id-derive = { git = "https://github.com/vityafx/unique-type-id.git", rev = "8d6fd0a3b872897b3a5b3dd8d3621053a5975d79" }
 
 [profile.dev]
 opt-level = 1

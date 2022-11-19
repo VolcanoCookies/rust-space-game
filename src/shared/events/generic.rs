@@ -1,14 +1,16 @@
-use bevy::prelude::Transform;
+use bevy::prelude::{Entity, Transform};
 use bevy_rapier3d::prelude::Velocity;
 use serde::{Deserialize, Serialize};
-
-use crate::shared::networking::network_id::NetworkId;
+use spacegame_proc_macros::{client_bound, NetworkEvent};
 
 use crate::shared::remote_refs::{TransformDef, VelocityDef};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct GenericPositionSyncEvent {
-    pub network_id: NetworkId,
+    #[entity]
+    #[missing = "drop"]
+    pub entity: Entity,
     #[serde(with = "TransformDef")]
     pub transform: Transform,
     #[serde(with = "VelocityDef")]

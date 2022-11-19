@@ -1,20 +1,13 @@
-use bevy::prelude::{
-    Changed, Component, Entity, EventReader, Or, Plugin, Query, ResMut, Transform, With,
-};
+use bevy::prelude::{Changed, Component, EventReader, Or, Plugin, Query, ResMut, Transform, With};
 use bevy_rapier3d::prelude::Velocity;
 use bevy_renet::renet::{RenetServer, ServerEvent};
+use spacegame_core::network_id::NetworkId;
 
 use crate::{
     model::block_map::BlockMap,
     shared::{
-        events::{
-            generic::GenericPositionSyncEvent,
-            ship::{SyncShipEvent, SyncShipPositionEvent},
-        },
-        networking::{
-            message::{NetworkMessage, ServerMessage},
-            network_id::{self, NetworkId, NetworkIdMap},
-        },
+        events::{generic::GenericPositionSyncEvent, ship::SyncShipEvent},
+        networking::message::{NetworkMessage, ServerMessage},
     },
 };
 
@@ -32,18 +25,16 @@ impl Plugin for SyncPlugin {
 }
 
 fn on_client_connect(
-    mut network_ids: ResMut<NetworkIdMap>,
     mut server: ResMut<RenetServer>,
     mut server_events: EventReader<ServerEvent>,
-    ship_query: Query<(Entity, &Transform, &Velocity, &BlockMap)>,
+    ship_query: Query<(&NetworkId, &Transform, &Velocity, &BlockMap)>,
 ) {
     for event in server_events.iter() {
         match event {
             ServerEvent::ClientConnected(client_id, _) => {
-                for (entity, transform, velocity, block_map) in ship_query.iter() {
-                    let network_id = network_ids.get(entity);
+                for (network_id, transform, velocity, block_map) in ship_query.iter() {
                     let message = ServerMessage::SyncShip(SyncShipEvent {
-                        ship_network_id: network_id,
+                        ship_entity: network_id.into(),
                         transform: transform.clone(),
                         velocity: velocity.clone(),
                         block_map: block_map.clone(),
@@ -82,7 +73,7 @@ fn generic_position_sync(
 ) {
     for (network_id, transform, velocity) in query.iter() {
         let message = ServerMessage::GenericPositionSync(GenericPositionSyncEvent {
-            network_id: *network_id,
+            entity: network_id.into(),
             transform: *transform,
             velocity: *velocity,
         });

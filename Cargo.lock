@@ -1279,6 +1279,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed2b28323eee4fb66bb824401daa3e46bd445b9a9298a3d382b320710ba69dd"
 
 [[package]]
+name = "convert_case"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
+
+[[package]]
 name = "copyless"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1584,6 +1590,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "5.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "907076dfda823b0b36d2a1bb5f90c96660a5bbcd7729e10727f07858f22c4edc"
+dependencies = [
+ "cfg-if 1.0.0",
+ "hashbrown",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core 0.9.4",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,8 +1649,10 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
+ "convert_case",
  "proc-macro2",
  "quote",
+ "rustc_version",
  "syn",
 ]
 
@@ -1859,6 +1880,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9c384f161156f5260c24a097c56119f9be8c798586aecc13afbcbe7b7e26bf8"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -3697,6 +3728,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
+name = "rustc_version"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "rusty-xinput"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3742,6 +3782,12 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "semver"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e25dfac463d778e353db5be2449d1cce89bd6fd23c9f1ea21310ce6e5a1b29c4"
 
 [[package]]
 name = "serde"
@@ -3849,14 +3895,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spaccegame_proc_macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "spacegame"
 version = "0.1.0"
 dependencies = [
@@ -3875,9 +3913,11 @@ dependencies = [
  "public-ip",
  "rand",
  "serde",
- "spaccegame_proc_macros",
  "spacegame_core",
+ "spacegame_proc_macros",
  "tokio",
+ "unique-type-id",
+ "unique-type-id-derive",
 ]
 
 [[package]]
@@ -3887,8 +3927,26 @@ dependencies = [
  "bevy",
  "bevy_renet",
  "bincode",
+ "dashmap",
+ "derive_more",
+ "downcast-rs",
+ "erased-serde",
  "fastrand",
  "serde",
+ "unique-type-id",
+ "unique-type-id-derive",
+]
+
+[[package]]
+name = "spacegame_proc_macros"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_macro_utils",
+ "proc-macro2",
+ "quote",
+ "spacegame_core",
+ "syn",
 ]
 
 [[package]]
@@ -4279,6 +4337,26 @@ name = "unicode-xid"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
+
+[[package]]
+name = "unique-type-id"
+version = "1.0.0"
+source = "git+https://github.com/vityafx/unique-type-id.git?rev=8d6fd0a3b872897b3a5b3dd8d3621053a5975d79#8d6fd0a3b872897b3a5b3dd8d3621053a5975d79"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "unique-type-id-derive"
+version = "1.0.0"
+source = "git+https://github.com/vityafx/unique-type-id.git?rev=8d6fd0a3b872897b3a5b3dd8d3621053a5975d79#8d6fd0a3b872897b3a5b3dd8d3621053a5975d79"
+dependencies = [
+ "fs2",
+ "quote",
+ "syn",
+ "unique-type-id",
+]
 
 [[package]]
 name = "universal-hash"
