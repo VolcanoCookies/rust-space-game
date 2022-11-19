@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bevy::prelude::{Entity, Transform};
 use bevy_rapier3d::prelude::Velocity;
 use serde::{Deserialize, Serialize};
-use spaccegame_proc_macros::NetworkEvent;
+use spacegame_proc_macros::client_bound;
 
 use crate::{
     model::{
@@ -13,10 +13,11 @@ use crate::{
     shared::remote_refs::{TransformDef, VelocityDef},
 };
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct SyncShipPositionEvent {
-    #[networkEntity]
-    #[dropIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
     #[serde(with = "TransformDef")]
     pub transform: Transform,
@@ -24,18 +25,20 @@ pub struct SyncShipPositionEvent {
     pub velocity: Velocity,
 }
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct SyncShipBlocksEvent {
-    #[networkEntity]
-    #[dropIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
     pub block_map: BlockMap,
 }
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct SyncShipEvent {
-    #[networkEntity]
-    #[newIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
     pub block_map: BlockMap,
     #[serde(with = "TransformDef")]
@@ -44,27 +47,30 @@ pub struct SyncShipEvent {
     pub velocity: Velocity,
 }
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct BlockUpdateEvent {
-    #[networkEntity]
-    #[dropIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
     pub block_type: BlockType,
     pub block_position: BlockPosition,
     pub block_rotation: BlockRotation,
 }
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct BlockRemoveEvent {
-    #[networkEntity]
-    #[dropIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
     pub block_position: BlockPosition,
 }
 
-#[derive(Debug, Serialize, Deserialize, NetworkEvent)]
+#[derive(Debug, Serialize, Deserialize)]
+#[client_bound]
 pub struct EnterShipEvent {
-    #[networkEntity]
-    #[dropIfNone]
+    #[entity]
+    #[missing = "drop"]
     pub ship_entity: Entity,
 }

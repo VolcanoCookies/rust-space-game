@@ -1,3 +1,11 @@
 GenericPositionSyncEvent=0
 GenericPositionSyncEvent=0
 PlayerSpawnEvent=1
+PlayerDespawnEvent=2
+PlayerMoveEvent=3
+SyncShipPositionEvent=4
+SyncShipBlocksEvent=5
+SyncShipEvent=6
+BlockUpdateEvent=7
+BlockRemoveEvent=8
+EnterShipEvent=9
