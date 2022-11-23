@@ -1,20 +1,19 @@
-use bevy::prelude::{Component, Entity, Name, Transform};
+use bevy::prelude::{Entity, Transform};
 use serde::{Deserialize, Serialize};
 use spacegame_core::message::ClientId;
-use spacegame_proc_macros::client_bound;
+use spacegame_proc_macros::{bidirectional, client_bound};
 
 use crate::shared::remote_refs::TransformDef;
 
-#[derive(Debug, Serialize, Deserialize)]
-#[client_bound]
+#[bidirectional]
+#[derive(Serialize, Deserialize)]
 pub struct PlayerMoveEvent {
-    pub client_id: u64,
     #[serde(with = "TransformDef")]
     pub transform: Transform,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
 pub struct PlayerSpawnEvent {
     #[entity]
     #[missing = "create"]
@@ -25,11 +24,19 @@ pub struct PlayerSpawnEvent {
     pub player_id: ClientId,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
 pub struct PlayerDespawnEvent {
     #[entity]
-    #[missing = "create"]
+    #[missing = "drop"]
     pub player_entity: Entity,
     pub player_id: ClientId,
+}
+
+/// The player that received this is ready to spawn into the world.
+#[client_bound]
+#[derive(Serialize, Deserialize)]
+pub struct PlayerReadyEvent {
+    pub own_client_it: ClientId,
+    pub players_online_count: i16,
 }

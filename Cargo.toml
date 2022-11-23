@@ -39,6 +39,9 @@ bevy_embedded_assets = "0.4.0"
 bevy-debug-text-overlay = "3.0.0"
 leafwing-input-manager = "0.6.1"
 
+bevy-discord-presence = "0.3.3"
+bevy_framepace = "0.6"
+
 spacegame_proc_macros = { path = "proc_macros" }
 spacegame_core = { path = "spacegame_core" }
 

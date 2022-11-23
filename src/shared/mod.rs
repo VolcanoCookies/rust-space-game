@@ -1,3 +1,4 @@
+pub mod binding;
 pub mod entities;
 pub mod events;
 pub mod model;

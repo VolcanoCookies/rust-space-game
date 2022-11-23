@@ -3,7 +3,7 @@ use bevy::transform::TransformBundle;
 use bevy_rapier3d::dynamics::Velocity;
 use bevy_rapier3d::prelude::{Ccd, Damping, ExternalForce, ExternalImpulse, RigidBody, Sleeping};
 use serde::{Deserialize, Serialize};
-use spaccegame_proc_macros::NetworkEvent;
+use spacegame_core::message::ClientId;
 
 use crate::model::block_map::BlockMap;
 
@@ -45,6 +45,12 @@ impl Default for ShipName {
 #[derive(Component)]
 pub struct Ship;
 
+#[derive(Component)]
+pub enum Pilot {
+    Pilot(ClientId),
+    None,
+}
+
 #[derive(Bundle)]
 pub struct ShipBundle {
     pub ship: Ship,
@@ -63,6 +69,7 @@ pub struct ShipBundle {
     pub damping: Damping,
     pub impulse: ExternalImpulse,
     pub force: ExternalForce,
+    pub pilot: Pilot,
 }
 
 impl Default for ShipBundle {
@@ -86,14 +93,7 @@ impl Default for ShipBundle {
             },
             impulse: ExternalImpulse::default(),
             force: ExternalForce::default(),
+            pilot: Pilot::None,
         }
     }
-}
-
-#[derive(Component, Serialize, Deserialize, Debug, NetworkEvent)]
-pub struct Pilot {
-    #[networkEntity]
-    #[dropIfNone]
-    pub player_entity: Entity,
-    pub player_id: u64,
 }

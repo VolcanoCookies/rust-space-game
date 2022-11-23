@@ -1,20 +1,21 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt::Debug};
 
 use bevy::{
     ecs::event::Event,
     prelude::{
-        App, Commands, CoreStage, EventWriter, ParallelSystemDescriptorCoercion, Plugin, ResMut,
+        App, Commands, CoreStage, EventReader, EventWriter, ParallelSystemDescriptorCoercion,
+        Plugin, Res, ResMut,
     },
     utils::HashMap,
 };
-use bevy_renet::renet::RenetClient;
+use bevy_renet::{renet::RenetClient, RenetClientPlugin};
 use unique_type_id::UniqueTypeId;
 
 use crate::{
     has_resource,
-    message::{ClientMessageOutQueue, Kind, NetworkEventChannelId, UntypedPacket},
+    message::{ClientId, ClientMessageOutQueue, Kind, NetworkEventChannelId, UntypedPacket},
     network_id::NetworkIdMap,
-    Labels, NetworkEvent,
+    Labels, NetworkEvent, NetworkEventDirection,
 };
 
 pub struct ClientNetworkPlugin;
@@ -23,7 +24,8 @@ impl ClientNetworkPlugin {}
 
 impl Plugin for ClientNetworkPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(NetworkIdMap::new())
+        app.add_plugin(RenetClientPlugin)
+            .insert_resource(NetworkIdMap::new())
             .insert_resource(MessageInQueues {
                 map: HashMap::new(),
             })
@@ -41,33 +43,64 @@ impl Plugin for ClientNetworkPlugin {
 }
 
 pub trait AppClientNetworkTrait {
-    fn add_network_event<T: NetworkEvent + NetworkEventChannelId + UniqueTypeId<u16>>(
+    fn add_network_event<
+        T: NetworkEvent + NetworkEventChannelId + UniqueTypeId<u16> + NetworkEventDirection + Debug,
+    >(
         &mut self,
     ) -> &mut Self;
 }
 
 impl AppClientNetworkTrait for App {
-    fn add_network_event<T: NetworkEvent + NetworkEventChannelId + UniqueTypeId<u16>>(
+    fn add_network_event<
+        T: NetworkEvent + NetworkEventChannelId + UniqueTypeId<u16> + NetworkEventDirection + Debug,
+    >(
         &mut self,
     ) -> &mut Self {
-        let mut queues = self.world.resource_mut::<MessageInQueues>();
-        queues.map.insert(T::TYPE_ID.0, VecDeque::new());
+        match T::DIRECTION {
+            crate::Direction::Clientbound => {
+                let mut queues = self.world.resource_mut::<MessageInQueues>();
+                queues.map.insert(T::TYPE_ID.0, VecDeque::new());
 
-        self.add_event::<T>()
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                before_send_typed::<T>
-                    .before(bevy_renet::RenetServerPlugin::send_packets_system)
-                    .with_run_criteria(has_resource::<RenetClient>)
-                    .label(Labels::BeforeSendTyped),
-            )
-            .add_system_to_stage(
-                CoreStage::PreUpdate,
-                after_receive_typed::<T>
-                    .after(Labels::ReceiveUntyped)
-                    .with_run_criteria(has_resource::<RenetClient>)
-                    .label(Labels::AfterReceiveTyped),
-            )
+                self.add_event::<T>().add_system_to_stage(
+                    CoreStage::PreUpdate,
+                    after_receive_typed::<T>
+                        .after(Labels::ReceiveUntyped)
+                        .with_run_criteria(has_resource::<RenetClient>)
+                        .label(Labels::AfterReceiveTyped),
+                )
+            }
+            crate::Direction::Serverbound => self
+                .add_event::<T>()
+                .insert_resource(ClientMessageOutQueue::<T>::new(T::CHANNEL_ID, T::TYPE_ID.0))
+                .add_system_to_stage(
+                    CoreStage::PostUpdate,
+                    before_send_typed::<T>
+                        .before(bevy_renet::RenetServerPlugin::send_packets_system)
+                        .with_run_criteria(has_resource::<RenetClient>)
+                        .label(Labels::BeforeSendTyped),
+                ),
+            crate::Direction::Bidirectional => {
+                let mut queues = self.world.resource_mut::<MessageInQueues>();
+                queues.map.insert(T::TYPE_ID.0, VecDeque::new());
+
+                self.add_event::<T>()
+                    .insert_resource(ClientMessageOutQueue::<T>::new(T::CHANNEL_ID, T::TYPE_ID.0))
+                    .add_system_to_stage(
+                        CoreStage::PreUpdate,
+                        after_receive_typed::<T>
+                            .after(Labels::ReceiveUntyped)
+                            .with_run_criteria(has_resource::<RenetClient>)
+                            .label(Labels::AfterReceiveTyped),
+                    )
+                    .add_system_to_stage(
+                        CoreStage::PostUpdate,
+                        before_send_typed::<T>
+                            .before(bevy_renet::RenetServerPlugin::send_packets_system)
+                            .with_run_criteria(has_resource::<RenetClient>)
+                            .label(Labels::BeforeSendTyped),
+                    )
+            }
+        }
     }
 }
 
@@ -84,10 +117,11 @@ fn before_send_typed<T>(
     mut queue: ResMut<ClientMessageOutQueue<T>>,
     mut client: ResMut<RenetClient>,
 ) where
-    T: NetworkEvent,
+    T: NetworkEvent + NetworkEventChannelId + UniqueTypeId<Kind> + Debug,
 {
     while let Some(mut message) = queue.raw.pop_front() {
         if message.entity_to_network(&mut network_id_map) {
+            message.set_client_id(client.client_id());
             let packet = UntypedPacket {
                 kind: queue.kind,
                 data: bincode::serialize(&message).unwrap(),
@@ -114,7 +148,7 @@ fn after_receive_typed<T>(
     mut commands: Commands,
     mut network_id_map: ResMut<NetworkIdMap>,
 ) where
-    T: UniqueTypeId<Kind> + Event + NetworkEvent,
+    T: UniqueTypeId<Kind> + Event + NetworkEvent + Debug,
 {
     if let Some(queue) = queues.map.get_mut(&T::TYPE_ID.0) {
         while let Some(data) = queue.pop_front() {

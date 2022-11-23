@@ -1,5 +1,6 @@
 use bevy::window::close_on_esc;
 use bevy_debug_text_overlay::OverlayPlugin;
+use bevy_discord_presence::config::{RPCConfig, RPCPlugin};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use spacegame::*;
 
@@ -7,15 +8,16 @@ use bevy::render::texture::ImageSettings;
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_rapier3d::prelude::*;
-use client::controller::{Character, Controlled, ControllerPlugin};
+use client::controller::{Controlled, ControllerPlugin};
 use resources::keybindings::Keybindings;
-use spacegame::client::controller::CharacterMarker;
+use spacegame::binding::BindingPlugin;
+use spacegame::client::highlight::HighlightPlugin;
+use spacegame::client::model::character::Character;
 use spacegame::client::networking::ClientNetworkingPlugin;
 use spacegame::client::player::PlayerPlugin;
 use spacegame::client::sync::SyncPlugin;
+use spacegame::model::block::BlockType;
 use spacegame::shared::entities::player::PlayerBundle;
-
-use crate::model::block::BlockType;
 
 use crate::resources::block_registry::BlockRegistry;
 use crate::resources::mouse::Mouse;
@@ -58,10 +60,15 @@ fn main() {
         // Insert game
         .add_startup_system(client_setup)
         .add_plugin(ControllerPlugin)
-        .add_system(client::highlight::highlight_mouse_pressed)
+        .add_plugin(HighlightPlugin)
         .add_system(shared::ship::despawn_ship)
         .add_system(asset_loaded)
         .add_plugin(PlayerPlugin)
+        .add_plugin(BindingPlugin)
+        .add_plugin(RPCPlugin(RPCConfig {
+            app_id: 1044938793129619517,
+            show_time: true,
+        }))
         .run();
 }
 
@@ -141,11 +148,14 @@ fn client_setup(
             ..default()
         })
         .insert(Controlled)
-        .insert(CharacterMarker)
         .add_child(camera_entity)
         .id();
 
-    commands.insert_resource(Character(character_entity));
+    commands.insert_resource(Character {
+        entity: character_entity,
+        client_id: 0,
+        name: String::from("Player"),
+    });
 
     // Crosshair
     commands
@@ -173,7 +183,8 @@ fn client_setup(
         });
 
     // Skybox
-    let skybox_handle = asset_server.load("skybox_big_blur.png");
+    // let skybox_handle = asset_server.load("skybox_big_blur.png");
+    let skybox_handle = asset_server.load("skybox_blur_1024.png");
 
     // Insert skybox resource
     commands.insert_resource(Cubemap {

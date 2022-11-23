@@ -1,10 +1,9 @@
-use bevy::prelude::{
-    default, warn, Commands, Entity, EventReader, PbrBundle, Query, ResMut, Transform,
-};
+use bevy::prelude::{default, Commands, Entity, EventReader, PbrBundle, Query, ResMut, Transform};
 use bevy_rapier3d::prelude::Velocity;
 use spacegame_core::network_id::NetworkIdMap;
 
 use crate::{
+    events::ship::EnteredShipEvent,
     model::{
         block::{BlockBundle, BlockType},
         block_map::BlockPosition,

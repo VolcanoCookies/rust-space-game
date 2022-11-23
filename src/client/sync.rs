@@ -1,15 +1,19 @@
-use bevy::prelude::{
-    default, warn, BuildChildren, Commands, DespawnRecursiveExt, Entity, EventReader, PbrBundle,
-    Plugin, Query, Res, ResMut, Transform,
+use bevy::{
+    prelude::{
+        default, BuildChildren, Commands, DespawnRecursiveExt, Entity, EventReader,
+        ParallelSystemDescriptorCoercion, PbrBundle, Plugin, Query, Res, ResMut, Transform,
+    },
+    transform::TransformBundle,
 };
 use bevy_rapier3d::prelude::Velocity;
 use spacegame_core::network_id::NetworkIdMap;
 
 use crate::{
-    events::ship::{BlockRemoveEvent, BlockUpdateEvent},
+    events::ship::{BlockRemoveEvent, BlockUpdateEvent, LoadShipEvent},
     model::{
         block::{BlockBundle, BlockType},
         block_map::{BlockMap, BlockPosition, BlockRotation},
+        ship::{ShipBundle, ShipName},
     },
     resources::block_registry::BlockRegistry,
     shared::events::{
@@ -18,18 +22,52 @@ use crate::{
     },
 };
 
+use super::labels::UpdateLabels;
+
 pub struct SyncPlugin;
 
 impl Plugin for SyncPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_system(on_sync_ship)
-            .add_system(on_generic_position_sync)
+        app.add_system(on_sync_ship.label(UpdateLabels::Sync))
+            .add_system(on_sync_ship_position.label(UpdateLabels::Sync))
+            .add_system(on_load_ship)
+            .add_system(on_generic_position_sync.label(UpdateLabels::Sync))
             .add_system(on_block_update)
             .add_system(on_block_remove);
     }
 
     fn name(&self) -> &str {
         "sync_plugin"
+    }
+}
+
+fn on_load_ship(
+    mut commands: Commands,
+    block_registry: Res<BlockRegistry>,
+    mut events: EventReader<LoadShipEvent>,
+) {
+    for event in events.iter() {
+        commands
+            .entity(event.ship_entity)
+            .insert_bundle(ShipBundle {
+                block_map: event.block_map.clone(),
+                transform_bundle: TransformBundle {
+                    local: event.transform,
+                    ..default()
+                },
+                velocity: event.velocity,
+                ship_name: ShipName {
+                    name: event.name.clone(),
+                },
+                ..default()
+            });
+        sync_blocks(
+            &mut commands,
+            &block_registry,
+            &BlockMap::new(),
+            &event.block_map,
+            &event.ship_entity,
+        );
     }
 }
 
@@ -75,7 +113,7 @@ fn on_sync_ship(
     }
 }
 
-fn on_sync_ship_positon(
+fn on_sync_ship_position(
     mut network_ids: ResMut<NetworkIdMap>,
     mut ship_events: EventReader<SyncShipPositionEvent>,
     mut ship_query: Query<(&mut Transform, &mut Velocity)>,

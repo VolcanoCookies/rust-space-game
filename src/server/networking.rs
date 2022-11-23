@@ -4,89 +4,66 @@ use std::{
 };
 
 use bevy::{
-    ecs::event::Event,
     prelude::{
-        default, Commands, CoreStage, DespawnRecursiveExt, EventReader, EventWriter, Name, Plugin,
-        Query, Res, ResMut, SystemSet, Transform, With,
+        default, Commands, DespawnRecursiveExt, Entity, EventReader, Name, Plugin, Query, ResMut,
+        Transform, With,
     },
     transform::TransformBundle,
 };
-use bevy_rapier3d::prelude::Velocity;
-use bevy_renet::{
-    renet::{
-        ReliableChannelConfig, RenetConnectionConfig, RenetServer, ServerAuthentication,
-        ServerConfig, ServerEvent,
-    },
-    RenetServerPlugin,
+
+use bevy_renet::renet::{
+    RenetConnectionConfig, RenetServer, ServerAuthentication, ServerConfig, ServerEvent,
 };
 use local_ip_address::local_ip;
 use spacegame_core::{
-    network_id::{NetworkId, NetworkIdMap},
-    NetworkEvent,
+    message::ServerMessageOutQueue,
+    network_id::NetworkIdMap,
+    server::{AppServerNetworkTrait, ServerNetworkPlugin},
 };
 
 use crate::{
-    entities::physic_object::PhysicsObjectBundle,
+    entities::{physic_object::PhysicsObjectBundle, player::PlayerClientId},
     events::{
-        player::PlayerDespawnEvent,
-        ship::{BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent},
+        player::{PlayerDespawnEvent, PlayerMoveEvent, PlayerReadyEvent},
+        ship::{
+            BlockRemoveEvent, BlockUpdateEvent, EnteredShipEvent, LeftShipEvent, LoadShipEvent,
+            ShipMoveEvent, SyncShipBlocksEvent, SyncShipEvent, SyncShipPositionEvent,
+            TryEnterShipEvent, TryLeaveShipEvent, UnloadShipEvent,
+        },
     },
     shared::{
         entities::player::{PlayerBundle, PlayerMarker},
         events::{generic::GenericPositionSyncEvent, player::PlayerSpawnEvent},
-        networking::{
-            message::{ClientMessage, NetworkMessage, ServerMessage},
-            player_id::PlayerIdMap,
-            plugin::NetworkingPlugin,
-        },
+        networking::{player_id::PlayerIdMap, plugin::NetworkingPlugin},
     },
     PROTOCOL_ID,
 };
-
-pub struct NetworkServer;
-
-impl NetworkServer {
-    /// Send a message to a client over a channel.
-    pub fn send_message(server: &mut RenetServer, client_id: u64, message: ServerMessage) {
-        server.send_message(
-            client_id,
-            message.channel_id(),
-            bincode::serialize(&message).unwrap(),
-        );
-    }
-
-    /// Send a message to all client, except the specified one, over a channel.
-    pub fn broadcast_message_except(
-        server: &mut RenetServer,
-        client_id: u64,
-        message: ServerMessage,
-    ) {
-        server.broadcast_message_except(
-            client_id,
-            message.channel_id(),
-            bincode::serialize(&message).unwrap(),
-        )
-    }
-
-    /// Send a message to all client over a channel.
-    pub fn broadcast_message(server: &mut RenetServer, message: ServerMessage) {
-        server.broadcast_message(message.channel_id(), bincode::serialize(&message).unwrap());
-    }
-}
 
 pub struct ServerNetworkingPlugin;
 
 impl Plugin for ServerNetworkingPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let mut server = create_renet_server();
         app.add_plugin(NetworkingPlugin)
-            .add_plugin(RenetServerPlugin)
+            .add_plugin(ServerNetworkPlugin)
+            .add_network_event::<SyncShipPositionEvent>()
+            .add_network_event::<SyncShipBlocksEvent>()
+            .add_network_event::<SyncShipEvent>()
+            .add_network_event::<PlayerMoveEvent>()
+            .add_network_event::<GenericPositionSyncEvent>()
+            .add_network_event::<PlayerSpawnEvent>()
+            .add_network_event::<PlayerDespawnEvent>()
+            .add_network_event::<BlockUpdateEvent>()
+            .add_network_event::<BlockRemoveEvent>()
+            .add_network_event::<LoadShipEvent>()
+            .add_network_event::<EnteredShipEvent>()
+            .add_network_event::<LeftShipEvent>()
+            .add_network_event::<TryEnterShipEvent>()
+            .add_network_event::<TryLeaveShipEvent>()
+            .add_network_event::<ShipMoveEvent>()
+            .add_network_event::<PlayerReadyEvent>()
+            .add_network_event::<UnloadShipEvent>()
             .add_system(on_client_connect)
-            .add_system_set_to_stage(
-                CoreStage::PreUpdate,
-                SystemSet::new().with_system(receive_network_events),
-            )
-            .insert_resource(server);
+            .insert_resource(create_renet_server());
     }
 
     fn name(&self) -> &str {
@@ -117,12 +94,14 @@ fn create_renet_server() -> RenetServer {
 }
 
 fn on_client_connect(
-    mut server: ResMut<RenetServer>,
     mut server_events: EventReader<ServerEvent>,
     mut commands: Commands,
     mut network_ids: ResMut<NetworkIdMap>,
     mut player_ids: ResMut<PlayerIdMap>,
-    mut player_query: Query<(&Name, &NetworkId), With<PlayerMarker>>,
+    player_query: Query<(Entity, &Name, &PlayerClientId), With<PlayerMarker>>,
+    mut player_spawn_queue: ResMut<ServerMessageOutQueue<PlayerSpawnEvent>>,
+    mut player_despawn_queue: ResMut<ServerMessageOutQueue<PlayerDespawnEvent>>,
+    mut player_ready_queue: ResMut<ServerMessageOutQueue<PlayerReadyEvent>>,
 ) {
     for event in server_events.iter() {
         match event {
@@ -143,117 +122,57 @@ fn on_client_connect(
                         name: Name::new(client_id.to_string()),
                         ..default()
                     })
+                    .insert(PlayerClientId(*client_id))
                     .id();
                 let network_id = network_ids.insert(player_entity);
                 commands.entity(player_entity).insert(network_id);
                 player_ids.insert(*client_id, player_entity);
 
-                for (player_name, player_network_id) in player_query.iter() {
-                    let message = ServerMessage::PlayerSpawn(PlayerSpawnEvent {
-                        player_entity: player_network_id.into(),
-                        player_name: player_name.to_string(),
-                        transform,
-                    });
-                    server.send_message(
-                        *client_id,
-                        message.channel_id(),
-                        bincode::serialize(&message).unwrap(),
+                let mut players_online_count = 0;
+                for (player_entity, player_name, player_client_id) in player_query.iter() {
+                    player_spawn_queue.send(
+                        client_id,
+                        PlayerSpawnEvent {
+                            player_entity,
+                            player_name: player_name.to_string(),
+                            transform,
+                            player_id: player_client_id.0,
+                        },
                     );
+
+                    players_online_count += 1;
                 }
 
-                let message = ServerMessage::PlayerSpawn(PlayerSpawnEvent {
-                    player_entity: network_id.into(),
-                    player_name: client_id.to_string(),
-                    transform,
-                });
-                server.broadcast_message_except(
-                    *client_id,
-                    message.channel_id(),
-                    bincode::serialize(&message).unwrap(),
+                player_spawn_queue.broadcast_except(
+                    client_id,
+                    PlayerSpawnEvent {
+                        player_entity,
+                        player_name: client_id.to_string(),
+                        transform,
+                        player_id: *client_id,
+                    },
+                );
+
+                player_ready_queue.send(
+                    client_id,
+                    PlayerReadyEvent {
+                        own_client_it: *client_id,
+                        players_online_count,
+                    },
                 );
             }
             ServerEvent::ClientDisconnected(client_id) => {
                 println!("Client [{}] disconnected!", client_id);
 
                 let player_entity = player_ids.from_client(*client_id).unwrap();
-                let network_id = network_ids.from_entity(player_entity).unwrap();
 
                 commands.entity(player_entity).despawn_recursive();
 
-                let message = ServerMessage::PlayerDespawn(PlayerDespawnEvent {
-                    player_entity: network_id.into(),
+                player_despawn_queue.broadcast(PlayerDespawnEvent {
+                    player_entity: player_entity,
+                    player_id: *client_id,
                 });
-                server
-                    .broadcast_message(message.channel_id(), bincode::serialize(&message).unwrap());
             }
         }
-    }
-}
-
-fn receive_network_events(
-    mut commands: Commands,
-    player_ids: Res<PlayerIdMap>,
-    mut network_ids: ResMut<NetworkIdMap>,
-    mut server: ResMut<RenetServer>,
-    mut block_update_events: EventWriter<BlockUpdateEvent>,
-    mut block_remove_events: EventWriter<BlockRemoveEvent>,
-    mut enter_ship_events: EventWriter<EnterShipEvent>,
-) {
-    let reliable_channel_id = ReliableChannelConfig::default().channel_id;
-    for client_id in server.clients_id() {
-        while let Some(message) = server.receive_message(client_id, reliable_channel_id) {
-            let client_message: ClientMessage = bincode::deserialize(&message).unwrap();
-            match client_message {
-                ClientMessage::UpdateBlock(event) => {
-                    pass_event(
-                        event,
-                        &mut commands,
-                        &mut network_ids,
-                        &mut block_update_events,
-                    );
-                }
-                ClientMessage::RemoveBlock(event) => {
-                    pass_event(
-                        event,
-                        &mut commands,
-                        &mut network_ids,
-                        &mut block_remove_events,
-                    );
-                }
-                ClientMessage::PlayerMove(player_move_event) => {
-                    let player_entity = player_ids.from_client(client_id).unwrap();
-
-                    let message = ServerMessage::GenericPositionSync(GenericPositionSyncEvent {
-                        entity: player_entity,
-                        transform: player_move_event.transform,
-                        velocity: Velocity::zero(),
-                    });
-
-                    server.broadcast_message(
-                        message.channel_id(),
-                        bincode::serialize(&message).unwrap(),
-                    );
-                }
-                ClientMessage::EnterShip(event) => {
-                    pass_event(
-                        event,
-                        &mut commands,
-                        &mut network_ids,
-                        &mut enter_ship_events,
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn pass_event<T: NetworkEvent + Event>(
-    mut event: T,
-    commands: &mut Commands,
-    network_ids: &mut NetworkIdMap,
-    place_block_events: &mut EventWriter<T>,
-) {
-    if event.network_to_entity(commands, network_ids) {
-        place_block_events.send(event);
     }
 }

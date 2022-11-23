@@ -1,10 +1,26 @@
 use bevy::math::Vec3;
 
-use bevy::prelude::{Color, GlobalTransform, Query, Res, ResMut, Transform};
+use bevy::prelude::{
+    Color, GlobalTransform, ParallelSystemDescriptorCoercion, Plugin, Query, Res, ResMut, Transform,
+};
 use bevy_prototype_debug_lines::DebugLines;
 
 use crate::client::controller::LookingAt;
 use crate::client::controller::LookingAt::Block;
+
+use super::labels::UpdateLabels;
+
+pub struct HighlightPlugin;
+
+impl Plugin for HighlightPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_system(highlight_mouse_block.after(UpdateLabels::Sync));
+    }
+
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+}
 
 static CUBE_LINES: [((f32, f32, f32), (f32, f32, f32)); 12] = [
     ((0.5, 0.5, 0.5), (-0.5, 0.5, 0.5)),
@@ -22,7 +38,7 @@ static CUBE_LINES: [((f32, f32, f32), (f32, f32, f32)); 12] = [
 ];
 static HOVER_COLOR: Color = Color::rgb(0., 0., 0.);
 
-pub fn highlight_mouse_pressed(
+pub fn highlight_mouse_block(
     looking_at: Res<LookingAt>,
     transform_query: Query<(&Transform, &GlobalTransform)>,
     mut lines: ResMut<DebugLines>,

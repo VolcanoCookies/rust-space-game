@@ -261,6 +261,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy-discord-presence"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0dd3e539d61a95ba6709e931ab8c3dfed39653efdc3581c4c851165eb1cb479"
+dependencies = [
+ "bevy",
+ "discord-presence",
+ "parking_lot 0.12.1",
+]
+
+[[package]]
 name = "bevy-inspector-egui"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +500,16 @@ checksum = "68bc194009c5e9b97da64a08142dd183c264885d99c985cf849868103018adf1"
 dependencies = [
  "bevy_macro_utils",
  "encase_derive_impl",
+]
+
+[[package]]
+name = "bevy_framepace"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34baf30ce11dde78acfd8384be68db8f411fd97791dbf17c45e99af4661de4d7"
+dependencies = [
+ "bevy",
+ "spin_sleep",
 ]
 
 [[package]]
@@ -1657,6 +1678,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "discord-presence"
+version = "0.5.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7693645df5076cb2ad3b62d8e186ea51121af23848bca7facb55143d24ce8dbf"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "cfg-if 1.0.0",
+ "crossbeam-channel",
+ "implicit-clone",
+ "named_pipe",
+ "num-derive",
+ "num-traits",
+ "parking_lot 0.12.1",
+ "serde",
+ "serde_json",
+ "strum",
+ "thiserror",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2401,6 +2445,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "implicit-clone"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a937e630d3907d421944abd8edb5288936f1fde83aaaf1a8c6c89bb4222f0677"
+
+[[package]]
 name = "indexmap"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2859,6 +2909,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "named_pipe"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad9c443cce91fc3e12f017290db75dde490d685cdaaf508d7159d7cf41f0eb2b"
+dependencies = [
+ "winapi",
 ]
 
 [[package]]
@@ -3737,6 +3796,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustversion"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97477e48b4cf8603ad5f7aaf897467cf42ab4218a38ef76fb14c2d6773a6d6a8"
+
+[[package]]
 name = "rusty-xinput"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3900,8 +3965,10 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy-debug-text-overlay",
+ "bevy-discord-presence",
  "bevy-inspector-egui",
  "bevy_embedded_assets",
+ "bevy_framepace",
  "bevy_prototype_debug_lines",
  "bevy_rapier3d",
  "bevy_renet",
@@ -3962,6 +4029,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin_sleep"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cafa7900db085f4354dbc7025e25d7a839a14360ea13b5fc4fd717f2d3b23134"
+dependencies = [
+ "once_cell",
+ "winapi",
+]
+
+[[package]]
 name = "spirv"
 version = "0.2.0+1.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3994,6 +4071,28 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+
+[[package]]
+name = "strum"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "063e6045c0e62079840579a7e47a355ae92f60eb74daaf156fb1e84ba164e63f"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e385be0d24f186b4ce2f9982191e7101bb737312ad61c1f2f984f34bcf85d59"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn",
+]
 
 [[package]]
 name = "subtle"

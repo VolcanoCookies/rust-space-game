@@ -1,14 +1,11 @@
-use std::marker::PhantomData;
-
-use bevy::asset::Assets;
-
 use bevy::input::mouse::MouseMotion;
-use bevy::math::{EulerRot, Quat, Vec2, Vec3};
+use bevy::math::{Vec2, Vec3};
 
+use bevy::prelude::ParallelSystemDescriptorCoercion;
 use bevy::prelude::{
-    App, BuildChildren, Camera3d, Commands, Component, Entity, EventReader, EventWriter,
-    GlobalTransform, Input, KeyCode, MouseButton, ParallelSystemDescriptorCoercion, Parent, Query,
-    Res, ResMut, SystemSet, Time, Transform, Windows, With,
+    App, BuildChildren, Camera3d, Commands, Component, Entity, EventReader, GlobalTransform, Input,
+    KeyCode, MouseButton, Parent, Query, Res, ResMut, State, SystemLabel, SystemSet, Time,
+    Transform, Windows, With,
 };
 
 use bevy_debug_text_overlay::screen_print;
@@ -18,14 +15,16 @@ use bevy_rapier3d::math::Real;
 
 use bevy_rapier3d::prelude::{ExternalForce, QueryFilter, RapierContext};
 use bevy_rapier3d::render::DebugRenderContext;
-use bevy_renet::renet::RenetClient;
 use iyes_loopless::prelude::{AppLooplessStateExt, IntoConditionalSystem};
-use iyes_loopless::state::{CurrentState, NextState};
+use iyes_loopless::state::CurrentState;
 use leafwing_input_manager::prelude::{ActionState, InputManagerPlugin, InputMap};
-use leafwing_input_manager::{Actionlike, InputManagerBundle};
-use spacegame_core::network_id::{NetworkId, NetworkIdMap};
+use leafwing_input_manager::{action_state, Actionlike, InputManagerBundle};
+use spacegame_core::message::ClientMessageOutQueue;
 
-use crate::events::ship::{BlockRemoveEvent, BlockUpdateEvent, EnterShipEvent};
+use crate::events::ship::{
+    BlockRemoveEvent, BlockUpdateEvent, EnteredShipEvent, LeftShipEvent, ShipMoveEvent,
+    TryEnterShipEvent, TryLeaveShipEvent,
+};
 use crate::math::rotate_vec_by_quat;
 use crate::model::block_map::BlockRotation;
 
@@ -33,12 +32,11 @@ use crate::shared::events::player::PlayerMoveEvent;
 use crate::shared::model::block::BlockType;
 use crate::shared::model::block_map::BlockPosition;
 use crate::shared::model::ship::{Gimbal, Thrust};
-use crate::shared::networking::message::{ClientMessage, NetworkMessage};
 
 use crate::shared::resources::control_input::ControlInput;
 use crate::shared::resources::keybindings::Keybindings;
 
-use super::networking::NetworkClient;
+use super::model::character::Character;
 
 #[derive(Component)]
 pub struct Controlled;
@@ -47,6 +45,7 @@ pub struct Controlled;
 pub enum ControlState {
     Ship,
     Character,
+    Freecam,
 }
 
 pub enum LookingAt {
@@ -60,38 +59,59 @@ pub enum ChangeControlEvent {
     Character(Entity),
     // Ship entity we are taking control off
     Ship(Entity),
+    Freecam,
 }
 
-pub struct SpawnShipEvent {
-    pub transform: Transform,
+#[derive(SystemLabel)]
+enum Labels {
+    Preprocess,
+}
+
+enum ControlledShip {
+    Ship(Entity),
+    None,
 }
 
 pub struct ControllerPlugin;
 
 impl bevy::app::Plugin for ControllerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SpawnShipEvent>()
-            .add_event::<ChangeControlEvent>()
-            .insert_resource(CameraController {
-                pitch: 0.0,
-                yaw: 0.0,
-            })
+        app.add_event::<ChangeControlEvent>()
             .insert_resource(ControlInput::default())
+            .insert_resource(ControlledShip::None)
+            .add_state(ControlState::Character)
             .add_plugin(InputManagerPlugin::<Action>::default())
             .add_startup_system(setup)
-            .add_system(merge_inputs.label("pre_process"))
-            .add_system(block_raycast.label("pre_process"))
             .add_system_set(
                 SystemSet::new()
-                    .after("pre_process")
-                    .with_system(control)
-                    .with_system(change_control)
-                    .with_system(character_movement.run_in_state(ControlState::Character))
-                    .with_system(character_controls.run_in_state(ControlState::Character))
-                    .with_system(ship_controls.run_in_state(ControlState::Ship)),
+                    .label(Labels::Preprocess)
+                    .with_system(block_raycast)
+                    .with_system(merge_inputs),
             )
-            .add_system(toggle_debug)
-            .add_loopless_state(ControlState::Character);
+            .add_system_set(
+                SystemSet::on_update(ControlState::Character)
+                    .after(Labels::Preprocess)
+                    .with_system(character_movement)
+                    .with_system(character_controls),
+            )
+            .add_system_set(
+                SystemSet::on_update(ControlState::Ship)
+                    .after(Labels::Preprocess)
+                    .with_system(ship_controls),
+            )
+            .add_system_set(
+                SystemSet::on_enter(ControlState::Character).with_system(take_character_control),
+            )
+            .add_system_set(SystemSet::on_enter(ControlState::Ship).with_system(take_ship_control))
+            .add_system_set(
+                SystemSet::on_update(ControlState::Freecam)
+                    .after("preprocess")
+                    .with_system(freecam_controls),
+            )
+            .add_system(control)
+            .add_system(on_self_enter_ship)
+            .add_system(on_self_leave_ship)
+            .add_system(toggle_debug);
     }
 
     fn name(&self) -> &str {
@@ -117,6 +137,8 @@ enum Action {
     ToggleDebugColliders,
     ToggleDebugPrints,
     ToggleInspector,
+    ToggleFreecam,
+    ResetCamera,
 }
 
 fn setup(mut commands: Commands) {
@@ -135,6 +157,8 @@ fn setup(mut commands: Commands) {
         (KeyCode::F, Action::ExitShip),
         (KeyCode::P, Action::ToggleDebugColliders),
         (KeyCode::I, Action::ToggleInspector),
+        (KeyCode::L, Action::ToggleFreecam),
+        (KeyCode::R, Action::ResetCamera),
     ]);
 
     input_map.insert_multiple([
@@ -162,9 +186,9 @@ pub fn block_raycast(
         camera_global_transform.forward(),
         Real::MAX,
         true,
-        QueryFilter::new().exclude_collider(character.0),
+        QueryFilter::new().exclude_collider(character.entity),
     ) {
-        if let Ok((parent)) = parent_query.get(entity) {
+        if let Ok(parent) = parent_query.get(entity) {
             commands.insert_resource(LookingAt::Block(entity, **parent, intersect));
         } else {
             commands.insert_resource(LookingAt::None);
@@ -212,111 +236,27 @@ fn merge_inputs(
     control_input.mouse_delta_raw = mouse_delta_raw;
 }
 
-pub fn change_control(
+fn control(
     mut commands: Commands,
-    character: Res<Character>,
-    mut change_control_events: EventReader<ChangeControlEvent>,
-    mut current_state: ResMut<CurrentState<ControlState>>,
-    controlled_query: Query<Option<Entity>, With<Controlled>>,
-    mut transform_query: Query<(&mut Transform, &GlobalTransform)>,
-    camera_query: Query<Entity, With<Camera3d>>,
-    parent_query: Query<&Parent>,
-) {
-    let opt_controlled_entity = controlled_query.single();
-
-    let camera_entity = camera_query.single();
-
-    for event in change_control_events.iter() {
-        match event {
-            ChangeControlEvent::Character(character_entity) => {
-                // Gain control of a character
-
-                // Remove Controlled component from old controlled entity
-                if let Some(old_entity) = opt_controlled_entity {
-                    commands.entity(old_entity).remove::<Controlled>();
-                }
-                commands.entity(character.0).insert(Controlled);
-
-                let (mut character_transform, character_global_trasform) =
-                    transform_query.get_mut(character.0).unwrap();
-                // Remove the character from its parent, which is going to be the ship we are controlling
-                if let Ok(character_parent) = parent_query.get(character.0) {
-                    commands
-                        .entity(character_parent.get())
-                        .remove_children(&[character.0]);
-                }
-                // Set the characters transform to be equal its current local transform in the ship
-                *character_transform = character_global_trasform.compute_transform();
-
-                // Remove the camera from its parent, which is going to be the ship we are controlling
-                if let Ok(camera_parent) = parent_query.get(camera_entity) {
-                    commands
-                        .entity(camera_parent.get())
-                        .remove_children(&[camera_entity]);
-                }
-
-                // Set the camera to be in the characters head
-                let (mut camera_transform, camera_global_transform) =
-                    transform_query.get_mut(camera_entity).unwrap();
-                *camera_transform = Transform::default();
-                // Add the camera as a child to the character
-                commands.entity(character.0).add_child(camera_entity);
-
-                // Set the next state to be character controlled
-                commands.insert_resource(NextState(ControlState::Character));
-            }
-            ChangeControlEvent::Ship(ship_entity) => {
-                // Gain control of a ship
-
-                // Remove Controlled component from old controlled entity
-                if let Some(old_entity) = opt_controlled_entity {
-                    commands.entity(old_entity).remove::<Controlled>();
-                }
-                // Add component
-                commands.entity(*ship_entity).insert(Controlled);
-
-                // Remove the camera from its parent, which is going to be the ship we are controlling
-                if let Ok(character_parent) = parent_query.get(character.0) {
-                    commands
-                        .entity(character_parent.get())
-                        .remove_children(&[character.0]);
-                }
-
-                // Put the camera a bit behind the center of the ship
-                let (mut camera_transform, _camera_global_transform) =
-                    transform_query.get_mut(camera_entity).unwrap();
-                let mut camera_offset_transform =
-                    Transform::from_translation(Vec3::new(0., 1.5, 2.5));
-                camera_offset_transform.rotate_local_x(-25.0_f32.to_radians());
-                *camera_transform = camera_offset_transform;
-
-                // Convert the characters world coordinates to local ship relative coordinates
-                let ship_transform = transform_query.get(*ship_entity).unwrap().0.clone();
-                let (mut character_transform, character_global_transform) =
-                    transform_query.get_mut(character.0).unwrap();
-                character_transform.translation =
-                    ship_transform.translation - character_global_transform.translation();
-
-                // Add the camera as a child to the ship
-                commands.entity(*ship_entity).add_child(camera_entity);
-                // Add the character as a child of the ship
-                commands.entity(*ship_entity).add_child(character.0);
-
-                // Set the next state to the ship controlled
-                commands.insert_resource(NextState(ControlState::Ship));
-            }
-        }
-    }
-}
-
-pub fn control(
-    keybindings: Res<Keybindings>,
-    control_state: Res<CurrentState<ControlState>>,
-    mut commands: Commands,
+    mut control_state: ResMut<State<ControlState>>,
     looking_at: Res<LookingAt>,
     control_input: Res<ControlInput>,
-    mut spawn_ship_events: EventWriter<SpawnShipEvent>,
+    action_query: Query<&ActionState<Action>>,
 ) {
+    let action_state = action_query.single();
+
+    if action_state.just_pressed(Action::ToggleFreecam) {
+        match *control_state.current() {
+            ControlState::Freecam => {
+                control_state.pop();
+                screen_print!("Exit freecam mode");
+            }
+            _ => {
+                control_state.push(ControlState::Freecam);
+                screen_print!("Enter freecam mode");
+            }
+        };
+    }
 }
 
 fn toggle_debug(
@@ -330,42 +270,46 @@ fn toggle_debug(
         debug_render_context.enabled = !debug_render_context.enabled;
         screen_print!("Toggled debug lines");
     }
-
-    //  if action_state.just_pressed(DebugAction::ToggleInspector) {
-    //     let mut inspector_window_data = inspector_window.window_data_mut::<()>();
-    //    inspector_window_data.visible = !inspector_window_data.visible;
-    //     screen_print!("Toggled inspector");
-    //   }
 }
-
-// Resource containing our own character.
-pub struct Character(pub Entity);
-
-// Our own character
-#[derive(Component)]
-pub struct CharacterMarker;
 
 // The currently controlled ship
 #[derive(Component)]
 pub struct ShipMarker;
 
-struct CameraController {
-    pub yaw: f32,
-    pub pitch: f32,
+fn take_character_control(
+    mut commands: Commands,
+    character: Res<Character>,
+    camera_query: Query<(Entity, Option<&Parent>), With<Camera3d>>,
+    mut transform_query: Query<&mut Transform>,
+) {
+    let (camera_entity, camera_parent_entity) = camera_query.single();
+
+    if camera_parent_entity.is_some() {
+        commands
+            .entity(camera_parent_entity.unwrap().get())
+            .remove_children(&[camera_entity]);
+    }
+
+    let mut camera_transform = transform_query.get_mut(camera_entity).unwrap();
+
+    *camera_transform = Transform::default();
+    commands.entity(character.entity).add_child(camera_entity);
 }
 
 fn character_controls(
     looking_at: Res<LookingAt>,
-    mut client: ResMut<RenetClient>,
-    query: Query<&ActionState<Action>>,
-    transform_query: Query<(&GlobalTransform, &NetworkId)>,
+    state_query: Query<&ActionState<Action>>,
+    transform_query: Query<&GlobalTransform>,
     block_query: Query<&BlockPosition>,
+    mut block_remove_queue: ResMut<ClientMessageOutQueue<BlockRemoveEvent>>,
+    mut block_update_queue: ResMut<ClientMessageOutQueue<BlockUpdateEvent>>,
+    mut try_enter_ship_queue: ResMut<ClientMessageOutQueue<TryEnterShipEvent>>,
 ) {
-    let action_state = query.single();
+    let action_state = state_query.single();
 
     if let LookingAt::Block(block_entity, ship_entity, intersect) = *looking_at {
         if action_state.just_pressed(Action::PlaceBlock) {
-            let (global_transform, network_id) = transform_query.get(ship_entity).unwrap();
+            let global_transform = transform_query.get(ship_entity).unwrap();
             let block_position = BlockPosition::rounded(
                 global_transform
                     .affine()
@@ -373,79 +317,29 @@ fn character_controls(
                     .transform_point3(intersect.point + intersect.normal / 2.),
             );
 
-            NetworkClient::send(
-                &mut client,
-                ClientMessage::UpdateBlock(BlockUpdateEvent {
-                    ship_entity: network_id.into(),
-                    block_type: BlockType::Hull,
-                    block_position,
-                    block_rotation: BlockRotation::default(),
-                }),
-            );
+            block_update_queue.send(BlockUpdateEvent {
+                ship_entity,
+                block_type: BlockType::Hull,
+                block_position,
+                block_rotation: BlockRotation::default(),
+                client_id: 0,
+            });
         } else if action_state.just_pressed(Action::RemoveBlock) {
-            let (_, network_id) = transform_query.get(ship_entity).unwrap();
             let block_position = block_query.get(block_entity).unwrap();
 
-            NetworkClient::send(
-                &mut client,
-                ClientMessage::RemoveBlock(BlockRemoveEvent {
-                    ship_entity: network_id.into(),
-                    block_position: *block_position,
-                }),
-            );
+            block_remove_queue.send(BlockRemoveEvent {
+                ship_entity,
+                block_position: *block_position,
+                client_id: 0,
+            });
         }
 
         if action_state.just_pressed(Action::EnterShip) {
-            let (_, network_id) = transform_query.get(ship_entity).unwrap();
-            NetworkClient::send(
-                &mut client,
-                ClientMessage::EnterShip(EnterShipEvent {
-                    ship_entity: network_id.into(),
-                }),
-            );
+            try_enter_ship_queue.send(TryEnterShipEvent {
+                ship_entity,
+                client_id: 0,
+            });
         }
-    }
-}
-
-fn on_enter_ship(
-    mut commands: Commands,
-    character: Res<Character>,
-    network_ids: Res<NetworkIdMap>,
-    mut events: EventReader<EnterShipEvent>,
-    controlled_query: Query<Entity, With<Controlled>>,
-    camera_query: Query<Entity, With<Camera3d>>,
-    mut transform_query: Query<(&mut Transform, &GlobalTransform)>,
-) {
-    let old_controlled_entity = controlled_query.single();
-    let camera_entity = camera_query.single();
-
-    for event in events.iter() {
-        // Remove controlled from old entity and detach camera
-        commands
-            .entity(old_controlled_entity)
-            .remove::<Controlled>()
-            .remove_children(&[camera_entity]);
-
-        // Add controlled to new entity and attach camera
-        commands
-            .entity(event.ship_entity)
-            .insert(Controlled)
-            .add_child(camera_entity);
-
-        // Put the camera at the center of the ship
-        let (mut camera_transform, _camera_global_transform) =
-            transform_query.get_mut(camera_entity).unwrap();
-        *camera_transform = Transform::default();
-
-        // Convert the characters world coordinates to local ship relative coordinates
-        let ship_transform = transform_query.get(event.ship_entity).unwrap().0.clone();
-        let (mut character_transform, character_global_transform) =
-            transform_query.get_mut(character.0).unwrap();
-        character_transform.translation =
-            ship_transform.translation - character_global_transform.translation();
-
-        // Set the next state to the ship controlled
-        commands.insert_resource(NextState(ControlState::Ship));
     }
 }
 
@@ -453,22 +347,13 @@ fn character_movement(
     keybindings: Res<Keybindings>,
     time: Res<Time>,
     control_input: Res<ControlInput>,
-    mut client: ResMut<RenetClient>,
-    mut spawn_ship_events: EventWriter<SpawnShipEvent>,
-    controlled_query: Query<Entity, With<Controlled>>,
-    mut transform_query: Query<(&mut Transform, &GlobalTransform)>,
+	character: Res<Character>,
+	mut transform_query: Query<(&mut Transform, &GlobalTransform)>,
     mut force_query: Query<&mut ExternalForce>,
     action_query: Query<&ActionState<Action>>,
+    mut player_move_queue: ResMut<ClientMessageOutQueue<PlayerMoveEvent>>,
 ) {
     let action_state = action_query.single();
-
-    let control_entity = controlled_query.single();
-    if control_input.just_pressed_key(keybindings.spawn_ship) {
-        let (_, global_transform) = transform_query.get(control_entity).unwrap();
-        spawn_ship_events.send(SpawnShipEvent {
-            transform: global_transform.compute_transform(),
-        });
-    }
 
     let dt = time.delta_seconds();
 
@@ -507,7 +392,7 @@ fn character_movement(
         axis_input *= 12.;
     }
 
-    let (mut transform, _) = transform_query.get_mut(control_entity).unwrap();
+    let (mut transform, _) = transform_query.get_mut(character.entity).unwrap();
     let forward = transform.forward();
     let right = transform.right();
     let up = transform.up();
@@ -533,66 +418,43 @@ fn character_movement(
         transform.rotate_axis(forward, z_rot);
     }
 
-    // Send updated rotation to server
-    let message = ClientMessage::PlayerMove(PlayerMoveEvent {
-        client_id: client.client_id(),
+    player_move_queue.send(PlayerMoveEvent {
+        client_id: 0,
         transform: transform.clone(),
     });
-    client.send_message(message.channel_id(), bincode::serialize(&message).unwrap());
 }
 
 fn ship_controls(
-    keybindings: Res<Keybindings>,
-    mut commands: Commands,
     time: Res<Time>,
     control_input: Res<ControlInput>,
-    character: Res<Character>,
-    mut change_control_events: EventWriter<ChangeControlEvent>,
-    mut ship_query: Query<(&mut ExternalForce, &Thrust, &Gimbal, &Transform), With<Controlled>>,
+    controlled_ship: Res<ControlledShip>,
+    action_query: Query<&ActionState<Action>>,
+    mut leave_ship_queue: ResMut<ClientMessageOutQueue<TryLeaveShipEvent>>,
+    mut ship_move_queue: ResMut<ClientMessageOutQueue<ShipMoveEvent>>,
+    mut ship_query: Query<(&mut ExternalForce, &Thrust, &Gimbal, &Transform)>,
 ) {
-    if control_input.just_pressed_key(keybindings.leave_ship) {
-        change_control_events.send(ChangeControlEvent::Character(character.0));
-        return;
-    }
+    let ship_entity = match *controlled_ship {
+        ControlledShip::Ship(entity) => entity,
+        ControlledShip::None => return,
+    };
 
-    let mut mov_dir = Vec3::ZERO;
+    let action_state = action_query.single();
+
+    let mov_dir = action_to_axis(action_state) * Vec3::new(1., 1., -1.);
     let mut rot_dir = Vec3::ZERO;
 
-    for key in control_input.key_input.get_pressed() {
-        match *key {
-            KeyCode::W => {
-                mov_dir += Vec3::new(0.0, 0.0, -1.0);
-            }
-            KeyCode::S => {
-                mov_dir += Vec3::new(0.0, 0.0, 1.0);
-            }
-            KeyCode::A => {
-                mov_dir += Vec3::new(-1.0, 0.0, 0.0);
-            }
-            KeyCode::D => {
-                mov_dir += Vec3::new(1.0, 0.0, 0.0);
-            }
-            KeyCode::Space => {
-                mov_dir += Vec3::new(0.0, 1.0, 0.0);
-            }
-            KeyCode::LControl => {
-                mov_dir += Vec3::new(0.0, -1.0, 0.0);
-            }
-            KeyCode::Q => {
-                rot_dir += Vec3::new(0.0, 0.0, 1.0);
-            }
-            KeyCode::E => {
-                rot_dir += Vec3::new(0.0, 0.0, -1.0);
-            }
-            _ => {}
-        }
+    if action_state.pressed(Action::RotateLeft) {
+        rot_dir += Vec3::new(0.0, 0.0, 1.0);
+    }
+    if action_state.pressed(Action::RotateRight) {
+        rot_dir += Vec3::new(0.0, 0.0, -1.0);
     }
 
     // Double thrust when shift is pressed
-    let thrust_multiplier = if control_input.pressed_key(keybindings.boost) {
-        2.0
+    let thrust_multiplier = if action_state.pressed(Action::Boost) {
+        16.0
     } else {
-        1.0
+        8.0
     };
 
     rot_dir.x = -control_input.mouse_delta.y;
@@ -605,4 +467,119 @@ fn ship_controls(
 
     force.force = rotate_vec_by_quat(mov_dir * thrust * dt, transform.rotation);
     force.torque = rotate_vec_by_quat(rot_dir * gimbal * dt, transform.rotation);
+
+    ship_move_queue.send(ShipMoveEvent {
+        ship_entity,
+        force: *force,
+        client_id: 0,
+    });
+
+    if action_state.just_pressed(Action::ExitShip) {
+        leave_ship_queue.send(TryLeaveShipEvent {
+            ship_entity,
+            client_id: 0,
+        });
+    }
+}
+
+fn on_self_enter_ship(
+    character: Res<Character>,
+    mut controlled_ship: ResMut<ControlledShip>,
+    mut control_state: ResMut<State<ControlState>>,
+    mut events: EventReader<EnteredShipEvent>,
+) {
+    for event in events.iter() {
+        if event.player_id == character.client_id {
+            *controlled_ship = ControlledShip::Ship(event.ship_entity);
+            control_state.set(ControlState::Ship);
+        }
+    }
+}
+
+fn on_self_leave_ship(
+    character: Res<Character>,
+    mut controlled_ship: ResMut<ControlledShip>,
+    mut control_state: ResMut<State<ControlState>>,
+    mut events: EventReader<LeftShipEvent>,
+) {
+    for event in events.iter() {
+        if event.player_id == character.client_id {
+            *controlled_ship = ControlledShip::None;
+            control_state.set(ControlState::Character);
+        }
+    }
+}
+
+fn take_ship_control(
+    mut commands: Commands,
+    controlled_ship: Res<ControlledShip>,
+    mut camera_query: Query<(Entity, &mut Transform, Option<&Parent>), With<Camera3d>>,
+) {
+    let (camera, mut transform, parent) = camera_query.single_mut();
+
+    if parent.is_some() {
+        commands
+            .entity(parent.unwrap().get())
+            .remove_children(&[camera]);
+    }
+
+    match *controlled_ship {
+        ControlledShip::Ship(ship) => {
+            commands.entity(ship).add_child(camera).insert(Controlled);
+        }
+        ControlledShip::None => panic!("ControlledShip is None when taking control of a ship"),
+    }
+
+    *transform = Transform::default();
+}
+
+fn freecam_controls(
+    time: Res<Time>,
+    action_query: Query<&ActionState<Action>>,
+    mut camera_query: Query<&mut Transform, With<Camera3d>>,
+) {
+    let action_state = action_query.single();
+
+    let mut camera_transform = camera_query.single_mut();
+
+    let mut axis_input = action_to_axis(action_state);
+    axis_input *= Vec3::new(1., 1., -1.);
+    let speed = if action_state.pressed(Action::Boost) {
+        32.
+    } else {
+        16.
+    };
+
+    let dt = time.delta_seconds();
+
+    camera_transform.translation += axis_input * dt * speed;
+
+    if action_state.just_pressed(Action::ResetCamera) {
+        *camera_transform = Transform::default();
+    }
+}
+
+fn action_to_axis(action_state: &ActionState<Action>) -> Vec3 {
+    // Handle key input
+    let mut axis_input = Vec3::ZERO;
+    if action_state.pressed(Action::MoveForward) {
+        axis_input.z += 1.0;
+    }
+    if action_state.pressed(Action::MoveBackward) {
+        axis_input.z -= 1.0;
+    }
+    if action_state.pressed(Action::MoveRight) {
+        axis_input.x += 1.0;
+    }
+    if action_state.pressed(Action::MoveLeft) {
+        axis_input.x -= 1.0;
+    }
+    if action_state.pressed(Action::MoveUp) {
+        axis_input.y += 1.0;
+    }
+    if action_state.pressed(Action::MoveDown) {
+        axis_input.y -= 1.0;
+    }
+
+    axis_input
 }

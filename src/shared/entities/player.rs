@@ -1,13 +1,9 @@
 use bevy::{
-    ecs::bundle,
     prelude::{default, Bundle, Component, Mesh, Name},
     render::mesh,
-    transform::TransformBundle,
 };
-use bevy_rapier3d::prelude::{
-    Ccd, Collider, ComputedColliderShape, Damping, Dominance, ExternalForce, ExternalImpulse,
-    RigidBody, Sleeping, Velocity,
-};
+use bevy_rapier3d::prelude::{Collider, ComputedColliderShape, Damping, Dominance};
+use spacegame_core::message::ClientId;
 
 use super::physic_object::PhysicsObjectBundle;
 
@@ -45,3 +41,6 @@ impl Default for PlayerBundle {
 // Marker for any player entity, not just our own
 #[derive(Component)]
 pub struct PlayerMarker;
+
+#[derive(Component)]
+pub struct PlayerClientId(pub ClientId);

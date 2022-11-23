@@ -1,14 +1,18 @@
-use bevy::prelude::{Changed, Component, EventReader, Or, Plugin, Query, ResMut, Transform, With};
+use bevy::prelude::{
+    BuildChildren, Changed, Commands, Component, Entity, EventReader, GlobalTransform, Or, Plugin,
+    Query, ResMut, Transform, With,
+};
 use bevy_rapier3d::prelude::Velocity;
-use bevy_renet::renet::{RenetServer, ServerEvent};
-use spacegame_core::network_id::NetworkId;
+use bevy_renet::renet::ServerEvent;
+use spacegame_core::{message::ServerMessageOutQueue, network_id::NetworkId};
 
 use crate::{
-    model::block_map::BlockMap,
-    shared::{
-        events::{generic::GenericPositionSyncEvent, ship::SyncShipEvent},
-        networking::message::{NetworkMessage, ServerMessage},
+    events::{
+        generic::{BindPositionEvent, UnbindPositionEvent},
+        ship::LoadShipEvent,
     },
+    model::block_map::BlockMap,
+    shared::events::generic::GenericPositionSyncEvent,
 };
 
 pub struct SyncPlugin;
@@ -25,21 +29,24 @@ impl Plugin for SyncPlugin {
 }
 
 fn on_client_connect(
-    mut server: ResMut<RenetServer>,
     mut server_events: EventReader<ServerEvent>,
-    ship_query: Query<(&NetworkId, &Transform, &Velocity, &BlockMap)>,
+    ship_query: Query<(Entity, &Transform, &Velocity, &BlockMap)>,
+    mut ship_queue: ResMut<ServerMessageOutQueue<LoadShipEvent>>,
 ) {
     for event in server_events.iter() {
         match event {
             ServerEvent::ClientConnected(client_id, _) => {
-                for (network_id, transform, velocity, block_map) in ship_query.iter() {
-                    let message = ServerMessage::SyncShip(SyncShipEvent {
-                        ship_entity: network_id.into(),
-                        transform: transform.clone(),
-                        velocity: velocity.clone(),
-                        block_map: block_map.clone(),
-                    });
-                    send(&mut server, client_id, &message);
+                for (ship_entity, transform, velocity, block_map) in ship_query.iter() {
+                    ship_queue.send(
+                        client_id,
+                        LoadShipEvent {
+                            ship_entity,
+                            transform: transform.clone(),
+                            velocity: velocity.clone(),
+                            block_map: block_map.clone(),
+                            name: String::from("some ship generic ass name"),
+                        },
+                    );
                 }
             }
             ServerEvent::ClientDisconnected(_) => {}
@@ -47,22 +54,10 @@ fn on_client_connect(
     }
 }
 
-fn send<T: ?Sized>(server: &mut RenetServer, client_id: &u64, message: &T)
-where
-    T: serde::Serialize + NetworkMessage,
-{
-    server.send_message(
-        *client_id,
-        message.channel_id(),
-        bincode::serialize(message).unwrap(),
-    )
-}
-
 #[derive(Component)]
 pub struct GenericPositionSyncMarker;
 
 fn generic_position_sync(
-    mut server: ResMut<RenetServer>,
     query: Query<
         (&NetworkId, &Transform, &Velocity),
         (
@@ -70,13 +65,14 @@ fn generic_position_sync(
             Or<(Changed<Transform>, Changed<Velocity>)>,
         ),
     >,
+    mut generic_sync_position_queue: ResMut<ServerMessageOutQueue<GenericPositionSyncEvent>>,
 ) {
     for (network_id, transform, velocity) in query.iter() {
-        let message = ServerMessage::GenericPositionSync(GenericPositionSyncEvent {
+        generic_sync_position_queue.broadcast(GenericPositionSyncEvent {
             entity: network_id.into(),
             transform: *transform,
             velocity: *velocity,
         });
-        server.broadcast_message(message.channel_id(), bincode::serialize(&message).unwrap());
     }
 }
+

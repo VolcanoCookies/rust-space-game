@@ -42,6 +42,27 @@ impl BlockBundle {
             ..default()
         }
     }
+
+    pub fn with_type(
+        block_type: BlockType,
+        block_position: BlockPosition,
+        block_rotation: BlockRotation,
+    ) -> Self {
+        Self {
+            block_type,
+            block_position,
+            block_rotation,
+            pbr_bundle: PbrBundle {
+                transform: Transform {
+                    translation: block_position.into(),
+                    rotation: block_rotation.into(),
+                    ..default()
+                },
+                ..default()
+            },
+            ..default()
+        }
+    }
 }
 
 impl Default for BlockBundle {

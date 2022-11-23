@@ -4,6 +4,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 pub struct NetworkIdMap {
     map: HashMap<Entity, NetworkId>,
     reverse_map: HashMap<NetworkId, Entity>,
@@ -30,9 +31,10 @@ impl NetworkIdMap {
             Some(network_id) => *network_id,
             None => {
                 let mut network_id = NetworkId::random();
-                while (self.reverse_map.contains_key(&network_id)) {
+                while self.reverse_map.contains_key(&network_id) {
                     network_id = NetworkId::random();
                 }
+
                 self.map.insert_unique_unchecked(entity, network_id);
                 self.reverse_map.insert_unique_unchecked(network_id, entity);
                 network_id
@@ -58,28 +60,28 @@ impl NetworkIdMap {
 }
 
 #[derive(Component, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct NetworkId(u64);
+pub struct NetworkId(u32);
 
 impl NetworkId {
     fn random() -> Self {
-        Self(fastrand::u64(u64::MIN..u64::MAX))
+        Self(fastrand::u32(u32::MIN..u32::MAX))
     }
 }
 
 impl From<Entity> for NetworkId {
     fn from(e: Entity) -> Self {
-        Self(e.to_bits())
+        Self(e.id())
     }
 }
 
 impl Into<Entity> for NetworkId {
     fn into(self) -> Entity {
-        Entity::from_bits(self.0)
+        Entity::from_raw(self.0)
     }
 }
 
 impl Into<Entity> for &NetworkId {
     fn into(self) -> Entity {
-        Entity::from_bits(self.0)
+        Entity::from_raw(self.0)
     }
 }

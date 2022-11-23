@@ -1,20 +1,21 @@
 use std::fmt::Debug;
 
 use bevy::prelude::{Entity, Transform};
-use bevy_rapier3d::prelude::Velocity;
+use bevy_rapier3d::prelude::{ExternalForce, Velocity};
 use serde::{Deserialize, Serialize};
-use spacegame_proc_macros::client_bound;
+use spacegame_core::message::ClientId;
+use spacegame_proc_macros::{bidirectional, client_bound, server_bound};
 
 use crate::{
     model::{
         block::BlockType,
         block_map::{BlockMap, BlockPosition, BlockRotation},
     },
-    shared::remote_refs::{TransformDef, VelocityDef},
+    shared::remote_refs::{ExternalForceDef, TransformDef, VelocityDef},
 };
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
 pub struct SyncShipPositionEvent {
     #[entity]
     #[missing = "drop"]
@@ -25,8 +26,8 @@ pub struct SyncShipPositionEvent {
     pub velocity: Velocity,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
 pub struct SyncShipBlocksEvent {
     #[entity]
     #[missing = "drop"]
@@ -34,8 +35,8 @@ pub struct SyncShipBlocksEvent {
     pub block_map: BlockMap,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
 pub struct SyncShipEvent {
     #[entity]
     #[missing = "drop"]
@@ -47,8 +48,30 @@ pub struct SyncShipEvent {
     pub velocity: Velocity,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 #[client_bound]
+#[derive(Serialize, Deserialize)]
+pub struct LoadShipEvent {
+    #[entity]
+    #[missing = "create"]
+    pub ship_entity: Entity,
+    pub block_map: BlockMap,
+    #[serde(with = "TransformDef")]
+    pub transform: Transform,
+    #[serde(with = "VelocityDef")]
+    pub velocity: Velocity,
+    pub name: String,
+}
+
+#[client_bound]
+#[derive(Serialize, Deserialize)]
+pub struct UnloadShipEvent {
+    #[entity]
+    #[missing = "drop"]
+    pub ship_entity: Entity,
+}
+
+#[bidirectional]
+#[derive(Serialize, Deserialize)]
 pub struct BlockUpdateEvent {
     #[entity]
     #[missing = "drop"]
@@ -58,8 +81,8 @@ pub struct BlockUpdateEvent {
     pub block_rotation: BlockRotation,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[client_bound]
+#[bidirectional]
+#[derive(Serialize, Deserialize)]
 pub struct BlockRemoveEvent {
     #[entity]
     #[missing = "drop"]
@@ -67,10 +90,46 @@ pub struct BlockRemoveEvent {
     pub block_position: BlockPosition,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[client_bound]
-pub struct EnterShipEvent {
+#[server_bound]
+#[derive(Serialize, Deserialize)]
+pub struct TryEnterShipEvent {
     #[entity]
     #[missing = "drop"]
     pub ship_entity: Entity,
+}
+
+#[client_bound]
+#[derive(Serialize, Deserialize)]
+pub struct EnteredShipEvent {
+    #[entity]
+    #[missing = "drop"]
+    pub ship_entity: Entity,
+    pub player_id: ClientId,
+}
+
+#[server_bound]
+#[derive(Serialize, Deserialize)]
+pub struct TryLeaveShipEvent {
+    #[entity]
+    #[missing = "drop"]
+    pub ship_entity: Entity,
+}
+
+#[client_bound]
+#[derive(Serialize, Deserialize)]
+pub struct LeftShipEvent {
+    #[entity]
+    #[missing = "drop"]
+    pub ship_entity: Entity,
+    pub player_id: ClientId,
+}
+
+#[server_bound]
+#[derive(Serialize, Deserialize)]
+pub struct ShipMoveEvent {
+    #[entity]
+    #[missing = "drop"]
+    pub ship_entity: Entity,
+    #[serde(with = "ExternalForceDef")]
+    pub force: ExternalForce,
 }

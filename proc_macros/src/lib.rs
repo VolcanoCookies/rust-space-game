@@ -54,6 +54,10 @@ pub fn derive_network_event(input: proc_macro::TokenStream) -> proc_macro::Token
         Err(e) => return e.into_compile_error().into(),
     };
 
+    let has_client_id_field = named_fields
+        .iter()
+        .any(|field| field.ident.as_ref().unwrap() == "client_id");
+
     let mut drop_network_to_entity = Vec::<TokenStream>::new();
     let mut drop_entity_to_network = Vec::<TokenStream>::new();
     let mut create_network_to_entity = Vec::<TokenStream>::new();
@@ -160,6 +164,18 @@ pub fn derive_network_event(input: proc_macro::TokenStream) -> proc_macro::Token
         }
     }
 
+    let set_client_id_impl = if has_client_id_field {
+        quote! {
+            fn set_client_id(&mut self, client_id: spacegame_core::message::ClientId) {
+                self.client_id = client_id;
+            }
+        }
+    } else {
+        quote! {
+            fn set_client_id(&mut self, client_id: spacegame_core::message::ClientId) {}
+        }
+    };
+
     let ident = ast.ident;
 
     proc_macro::TokenStream::from(quote! {
@@ -178,6 +194,8 @@ pub fn derive_network_event(input: proc_macro::TokenStream) -> proc_macro::Token
                 #(#ignore_network_to_entity)*
                 return true;
             }
+
+            #set_client_id_impl
         }
 
         impl spacegame_core::message::NetworkEventChannelId for #ident {
@@ -198,16 +216,26 @@ pub fn server_bound(
         fields.named.push(
             syn::Field::parse_named
                 .parse2(quote! {
-                    pub sender_id: spacegame_core::message::ClientId
+                    pub client_id: spacegame_core::message::ClientId
                 })
                 .unwrap(),
         );
     }
 
+    let ident = &item_struct.ident;
+
     return quote! {
-        #[derive(unique_type_id_derive::UniqueTypeId, spacegame_proc_macros::NetworkEvent)]
+        #[derive(unique_type_id_derive::UniqueTypeId, spacegame_proc_macros::NetworkEvent, Debug)]
         #[UniqueTypeIdType = "u16"]
         #item_struct
+
+        impl spacegame_core::NetworkEventDirection for #ident {
+            const DIRECTION: spacegame_core::Direction = spacegame_core::Direction::Serverbound;
+        }
+
+        impl spacegame_core::Serverbound for #ident {
+
+        }
     }
     .into();
 }
@@ -217,13 +245,63 @@ pub fn client_bound(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+    let item_struct = parse_macro_input!(input as ItemStruct);
+    let _ = parse_macro_input!(args as parse::Nothing);
+
+    let ident = &item_struct.ident;
+
+    return quote! {
+        #[derive(unique_type_id_derive::UniqueTypeId, spacegame_proc_macros::NetworkEvent, Debug)]
+        #[UniqueTypeIdType = "u16"]
+        #item_struct
+
+        impl spacegame_core::NetworkEventDirection for #ident {
+            const DIRECTION: spacegame_core::Direction = spacegame_core::Direction::Clientbound;
+        }
+
+        impl spacegame_core::Clientbound for #ident {
+
+        }
+    }
+    .into();
+}
+
+#[proc_macro_attribute]
+pub fn bidirectional(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut item_struct = parse_macro_input!(input as ItemStruct);
     let _ = parse_macro_input!(args as parse::Nothing);
 
+    if let syn::Fields::Named(ref mut fields) = item_struct.fields {
+        fields.named.push(
+            syn::Field::parse_named
+                .parse2(quote! {
+                    pub client_id: spacegame_core::message::ClientId
+                })
+                .unwrap(),
+        );
+    }
+
+    let ident = &item_struct.ident;
+
     return quote! {
-        #[derive(unique_type_id_derive::UniqueTypeId, spacegame_proc_macros::NetworkEvent)]
+        #[derive(unique_type_id_derive::UniqueTypeId, spacegame_proc_macros::NetworkEvent, Debug)]
         #[UniqueTypeIdType = "u16"]
         #item_struct
+
+        impl spacegame_core::NetworkEventDirection for #ident {
+            const DIRECTION: spacegame_core::Direction = spacegame_core::Direction::Bidirectional;
+        }
+
+        impl spacegame_core::Serverbound for #ident {
+
+        }
+
+        impl spacegame_core::Clientbound for #ident {
+
+        }
     }
     .into();
 }

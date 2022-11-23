@@ -1,8 +1,12 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, marker::PhantomData};
 
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Res, ResMut},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::NetworkEvent;
+use crate::{Clientbound, NetworkEvent, Serverbound};
 
 pub type ClientId = u64;
 
@@ -46,6 +50,33 @@ where
     pub(crate) kind: Kind,
 }
 
+impl<T> ServerMessageOutQueue<T>
+where
+    T: NetworkEvent,
+{
+    pub fn new(channel_id: ChannelId, kind: Kind) -> Self {
+        Self {
+            raw: VecDeque::new(),
+            channel_id,
+            kind,
+        }
+    }
+
+    pub fn send(&mut self, client_id: &ClientId, message: T) {
+        self.raw
+            .push_back((Destination::Client(*client_id), message));
+    }
+
+    pub fn broadcast(&mut self, message: T) {
+        self.raw.push_back((Destination::Broadcast, message));
+    }
+
+    pub fn broadcast_except(&mut self, client_id: &ClientId, message: T) {
+        self.raw
+            .push_back((Destination::Except(*client_id), message));
+    }
+}
+
 /// A typed message queue resource.
 ///
 /// For the client side, since we do not need to keep track of a destination for each message.
@@ -69,7 +100,7 @@ where
     pub(crate) kind: Kind,
 }
 
-impl<T> ServerMessageOutQueue<T>
+impl<T> ClientMessageOutQueue<T>
 where
     T: NetworkEvent,
 {
@@ -81,18 +112,8 @@ where
         }
     }
 
-    pub fn send(&mut self, client_id: ClientId, message: T) {
-        self.raw
-            .push_back((Destination::Client(client_id), message));
-    }
-
-    pub fn broadcast(&mut self, message: T) {
-        self.raw.push_back((Destination::Broadcast, message));
-    }
-
-    pub fn broadcast_except<V>(&mut self, client_id: ClientId, message: T) {
-        self.raw
-            .push_back((Destination::Except(client_id), message));
+    pub fn send(&mut self, message: T) {
+        self.raw.push_back(message);
     }
 }
 
